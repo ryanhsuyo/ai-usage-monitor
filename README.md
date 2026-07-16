@@ -1,0 +1,109 @@
+# AI Usage Monitor
+
+本機優先的 AI 訂閱用量監控桌面工具 — 追蹤額度、預測耗盡時間、提醒重置、建議方案。
+
+它不只是顯示 token 數字，而是回答：
+
+1. 我目前的 AI 訂閱方案是否划算？
+2. 照目前速度，本週額度什麼時候用完？
+3. 重置之前，還能完成幾次相似任務？
+4. 下一次額度什麼時候重置？
+5. 重置（預計或確認）時能不能主動通知我？
+6. 哪些任務、模型或專案最消耗額度？
+7. 我應該升級、維持還是降級方案？
+
+第一版以 **Claude** 為主要 Provider，架構可擴充至 Codex、ChatGPT、Gemini、Cursor、API credits 等任何有額度與重置週期的服務。
+
+> ⚠️ 所有預測（耗盡時間、剩餘次數、方案建議）都是**統計估算**，不是官方數字。UI 一律顯示可信度（含原因），資料不足時直接說「資料不足」。
+
+## MVP 功能
+
+- **手動優先的資料來源**：手動快照、活動紀錄、JSON 匯入、Demo 資料（自動化來源為 Roadmap，未完成的 Adapter 誠實回傳 `unsupported`，絕不假造資料）
+- **Dashboard 四卡**：目前用量／耗盡預測／相似任務剩餘次數／方案建議，全部附可信度與原因
+- **用量歷史**：趨勢圖（自製 SVG，無重型圖表依賴）、重置事件標記、擷取失敗標記、篩選與刪除
+- **活動紀錄**：開始→完成任務自動計算 usageDelta；依類型／專案／模型統計
+- **重置偵測**：「預計已重置」與「確認已重置」嚴格分開；單筆 0% 絕不當成重置
+- **每小時背景排程**：啟動時立即檢查一次；single-flight 防重入；可暫停
+- **通知**：桌面通知＋Discord／Slack／Telegram／自訂 Webhook；每管道×每事件矩陣開關、靜音時段、最小間隔、測試按鈕、去重（同事件同管道成功後絕不重發）、有限次退避重試
+- **Menu Bar 常駐**：關窗後背景執行、立即檢查、暫停／恢復監控、完全退出
+- **JSON 匯出／匯入**：schema 版本化；匯出**永不包含 Secret**；匯入先驗證、Merge/Replace 二擇、失敗不破壞既有資料
+- **Secret 安全**：Webhook URL／Bot Token 存 macOS Keychain（keyring crate；不可用時退回 App Data 內 AES-GCM 加密檔），SQLite 只存 `secretRef`
+
+## 技術架構
+
+- **Tauri 2 + React 18 + TypeScript (strict) + Vite 6**，套件管理 pnpm
+- **SQLite**（`tauri-plugin-sql`，migration 由 Rust 註冊、啟動時自動執行）— 使用者**不需要安裝或設定 SQLite**，它是 App 內部檔案
+- **分層**：`domain/`（純函式，無 React/SQL/OS）→ `ports/`（介面）→ `adapters/`（providers、notifications、platform、storage）→ `services/` → `ui/`
+- **測試**：Vitest 2 + React Testing Library；119 個測試涵蓋 domain 規則、repository、channel adapter、services、UI
+
+```
+src/
+  domain/        純計算：burn rate、forecast、reset detection、plan recommendation、
+                 confidence、dedup、retry、quiet hours、驗證
+  ports/         介面：SecretStore、SystemNotifier、AutoStart、BackgroundRuntime、
+                 Provider/Notification Adapter、Repositories、SqlDatabase
+  adapters/
+    providers/     Manual + 未完成 stub（回傳 unsupported）
+    notifications/ Desktop / Discord / Slack / Telegram / Custom Webhook
+    platform/      Tauri 實作 + InMemory 測試替身 + 加密檔 SecretStore fallback
+    storage/       SQLite repositories（SQL 只存在這裡）+ FakeSqlDatabase
+  services/      MonitorService(排程檢查)、NotificationDispatcher(去重/重試/靜音)、
+                 DemoData、Export/Import
+  ui/            8 頁面 + Onboarding + 元件
+src-tauri/       Rust：migrations、keyring 指令、tray、關窗隱藏、plugins
+```
+
+## 使用者安裝（macOS）
+
+```
+下載 .dmg → 拖進 Applications → 打開 App → 完成初次設定 → 開始使用
+```
+
+不需要 Node.js、Rust、SQLite、Terminal、資料庫設定或任何 Server。
+
+> 目前為未簽章（unsigned）本機建置：第一次開啟需在「系統設定 → 隱私權與安全性」允許，或對 App 右鍵→打開。正式簽章與 notarization 在 Roadmap Phase 5。
+
+## 開發
+
+需求：Node 18+、pnpm 9、Rust stable（含 Xcode CLT）。
+
+```bash
+pnpm install
+pnpm tauri dev        # 開發模式（完整 App，含 tray 與 SQLite）
+pnpm dev              # 純瀏覽器預覽（自動退回 in-memory 資料，不落地）
+
+pnpm typecheck        # TypeScript strict
+pnpm lint             # ESLint（0 warning 門檻）
+pnpm test             # Vitest 全部測試
+pnpm tauri build      # 產出 .app 與 .dmg（src-tauri/target/release/bundle/）
+```
+
+## 資料儲存位置
+
+- SQLite 資料檔：`{appDataDir}/app.db`（macOS 為 `~/Library/Application Support/com.aiusagemonitor.app/`），一律透過 Tauri Path API 取得，程式內不寫死路徑
+- Secret：macOS Keychain（service `com.aiusagemonitor.app`）；Keychain 不可用時為 App Data 內 AES-GCM 加密檔
+- Settings 頁有「開啟資料目錄」按鈕
+
+## 通知管道設定
+
+Notifications 頁 → 新增通知管道 → 選類型 → 貼上 Webhook URL / Bot Token（僅存系統安全儲存）→ 儲存 → **測試** → 依事件開關矩陣調整。每個管道可設定靜音時段與最小通知間隔；總開關可一鍵關閉所有通知。
+
+## 隱私
+
+- 本機優先：使用資料**預設不離開這台電腦**；沒有雲端後端、沒有帳號系統、沒有遙測
+- 不需要、也不會保存你的 Claude 帳號密碼
+- Browser Automation 預設未啟用（未實作）
+- 啟用 Discord/Slack/Telegram/Webhook 時，**通知內容**會送到對應第三方服務 — 由你自行決定是否啟用
+- JSON 匯出預設排除所有 Secret
+- 詳見 [docs/privacy.md](docs/privacy.md)、[docs/security.md](docs/security.md)
+
+## 目前限制
+
+- 用量資料需手動輸入（或 JSON 匯入）；自動同步 Claude/Codex/ChatGPT 在 Roadmap Phase 2–3
+- Windows 版未建置（架構已預留邊界：Credential Manager、System Tray、Toast 均走 interface）；見 [docs/roadmap.md](docs/roadmap.md)
+- 未簽章、無自動更新（Phase 5）
+- 預測基於使用百分比的統計趨勢，非官方 token 計數
+
+## Roadmap
+
+Phase 2：Claude Code / Codex 本機整合 → Phase 3：Browser 用量同步 → Phase 4：Windows → Phase 5：簽章與公開發布。詳見 [docs/roadmap.md](docs/roadmap.md)。

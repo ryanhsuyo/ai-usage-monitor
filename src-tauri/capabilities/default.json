@@ -1,0 +1,44 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main window of AI Usage Monitor.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-center",
+    "core:app:allow-app-hide",
+    "core:tray:default",
+    "core:menu:default",
+    "opener:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-appdata-read",
+    "fs:allow-appdata-write",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://**" }]
+    },
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+    "autostart:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    {
+      "identifier": "sql:allow-execute",
+      "allow": [{ "path": "sqlite:app.db" }]
+    },
+    {
+      "identifier": "sql:allow-select",
+      "allow": [{ "path": "sqlite:app.db" }]
+    },
+    "sql:allow-load",
+    "sql:allow-close"
+  ]
+}

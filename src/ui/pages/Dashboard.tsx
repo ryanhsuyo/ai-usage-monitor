@@ -1,0 +1,336 @@
+// Dashboard (spec §16.2): the four core cards. First glance answers — how much is left, when does
+// it reset, when might it run out, how many tasks remain, should I change plans.
+
+import { useMemo, useState } from "react";
+import { computeForecast } from "@/domain/forecast";
+import { recommendPlan } from "@/domain/planRecommendation";
+import { estimateRemainingTasks } from "@/domain/remainingTasks";
+import type { TaskType } from "@/domain/types";
+import { getAppServices } from "../appServices";
+import {
+  Badge,
+  ConfidenceBadge,
+  ConfidenceReasons,
+  EmptyState,
+  Meter,
+  toast,
+  useNow,
+} from "../components/atoms";
+import {
+  formatCountdown,
+  formatDateTime,
+  formatRelative,
+  pct,
+  PROVIDER_BRANDS,
+  SOURCE_LABELS,
+  TASK_TYPE_LABELS,
+} from "../components/format";
+import { SnapshotFormModal } from "../components/SnapshotForm";
+import { buildCycleSummaries, currentCycleStart, daysOfData, latestValid } from "../derive";
+import { useAppStore } from "../state/store";
+
+const ESTIMATE_TYPES: TaskType[] = ["short_chat", "general_chat", "coding", "large_context"];
+
+export function DashboardPage() {
+  const now = useNow();
+  const store = useAppStore();
+  const [showSnapshotForm, setShowSnapshotForm] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const limit = store.limits.find((l) => l.id === store.selectedLimitId);
+  const snapshotsByLimit = store.snapshotsByLimit;
+  const snapshots = useMemo(
+    () => (limit ? snapshotsByLimit[limit.id] ?? [] : []),
+    [limit, snapshotsByLimit]
+  );
+  const resetEvents = useMemo(
+    () => store.resetEvents.filter((e) => e.limitId === limit?.id),
+    [store.resetEvents, limit?.id]
+  );
+  const activities = useMemo(
+    () => store.activities.filter((a) => a.limitId === limit?.id),
+    [store.activities, limit?.id]
+  );
+  const latest = latestValid(snapshots);
+  const plan = store.plans.find((p) => p.id === limit?.planId);
+
+  const forecast = useMemo(() => {
+    if (!limit) return undefined;
+    const manualOnly = snapshots.every((s) => s.source === "manual" || s.source === "json_import");
+    const isDemo = snapshots.length > 0 && snapshots.filter((s) => s.valid).every((s) => s.source === "demo");
+    return computeForecast({
+      limitId: limit.id,
+      snapshots,
+      now: new Date(now).toISOString(),
+      resetAt: latest?.resetAt,
+      cycleStartIso: currentCycleStart(resetEvents),
+      manualOnly,
+      sourceReliability: isDemo ? "demo" : manualOnly ? "manual" : "automated",
+    });
+  }, [limit, snapshots, latest?.resetAt, resetEvents, now]);
+
+  const estimates = useMemo(() => {
+    if (!latest) return [];
+    return ESTIMATE_TYPES.map((taskType) =>
+      estimateRemainingTasks({
+        taskType,
+        activities,
+        currentUsedPercent: latest.usedPercent,
+      })
+    );
+  }, [activities, latest]);
+
+  const recommendation = useMemo(() => {
+    const cycles = buildCycleSummaries(snapshots, resetEvents);
+    return recommendPlan({ cycles, totalDaysOfData: Math.round(daysOfData(snapshots)) });
+  }, [snapshots, resetEvents]);
+
+  async function checkNow() {
+    setChecking(true);
+    try {
+      const services = await getAppServices();
+      await services.monitor.runOnce("manual");
+      await store.refresh();
+      toast.success("已完成一次立即檢查");
+    } catch (err) {
+      toast.error(`檢查失敗：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (store.limits.length === 0) {
+    return (
+      <EmptyState
+        icon="◎"
+        title="還沒有任何監控目標"
+        body="先建立 Provider 帳號、方案與額度限制，或載入 Demo 資料快速體驗完整功能。"
+        action={
+          <div className="row" style={{ justifyContent: "center" }}>
+            <button type="button" className="primary" onClick={() => store.navigate("plans")}>
+              建立方案與額度
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() =>
+                void (async () => {
+                  const services = await getAppServices();
+                  await services.demo.load();
+                  await store.refresh();
+                  toast.success("已載入 Demo 資料");
+                })()
+              }
+            >
+              載入 Demo 資料
+            </button>
+          </div>
+        }
+      />
+    );
+  }
+
+  const remaining = latest ? latest.remainingPercent : undefined;
+  const usedTone = latest
+    ? latest.usedPercent >= 90
+      ? "danger"
+      : latest.usedPercent >= 70
+        ? "warn"
+        : "ok"
+    : "ok";
+
+  return (
+    <>
+      <header>
+        <div className="card-head" style={{ gap: 0 }}>
+          {plan && (
+            <div
+              className="provider-mark"
+              style={{ background: PROVIDER_BRANDS[plan.providerId]?.color ?? "#656b78" }}
+              aria-hidden
+            >
+              {PROVIDER_BRANDS[plan.providerId]?.mark ?? "AI"}
+            </div>
+          )}
+          <div>
+            <h1>用量總覽</h1>
+            <p>
+              {plan ? `${PROVIDER_BRANDS[plan.providerId]?.label ?? ""} ${plan.name} · ` : ""}
+              {limit?.name ?? ""}
+            </p>
+          </div>
+        </div>
+        <div className="row">
+          <select
+            className="input"
+            style={{ width: "auto", padding: "8px 10px" }}
+            value={store.selectedLimitId ?? ""}
+            onChange={(e) => store.selectLimit(e.target.value)}
+            aria-label="選擇額度限制"
+          >
+            {store.limits.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn" onClick={() => void checkNow()} disabled={checking}>
+            {checking ? "檢查中…" : "立即檢查"}
+          </button>
+          <button type="button" className="primary" onClick={() => setShowSnapshotForm(true)} disabled={!limit}>
+            ＋ 新增快照
+          </button>
+        </div>
+      </header>
+
+      <div className="cards" style={{ marginBottom: 15 }}>
+        {/* ---------- Current Usage ---------- */}
+        <section className="card" aria-label="目前用量">
+          <div className="card-title">
+            <h3>目前用量</h3>
+            {latest && <Badge tone={usedTone === "ok" ? "ok" : usedTone}>{SOURCE_LABELS[latest.source] ?? latest.source}</Badge>}
+          </div>
+          {latest ? (
+            <>
+              <div className="usage-row" style={{ marginTop: 4 }}>
+                <strong>{pct(latest.usedPercent)}</strong>
+                <span>已使用 · 剩餘 {pct(remaining)}</span>
+              </div>
+              <Meter value={latest.usedPercent} tone={usedTone === "ok" ? undefined : usedTone} />
+              <div className="metric-row">
+                <span className="label">下一次重置</span>
+                <span className="value">{latest.resetAt ? formatDateTime(latest.resetAt) : "未設定"}</span>
+              </div>
+              <div className="metric-row">
+                <span className="label">距離重置</span>
+                <span className="value">{formatCountdown(latest.resetAt, now)}</span>
+              </div>
+              <div className="metric-row">
+                <span className="label">最近更新</span>
+                <span className="value">{formatRelative(latest.capturedAt, now)}</span>
+              </div>
+            </>
+          ) : (
+            <p className="muted" style={{ padding: "18px 0" }}>
+              尚無有效快照。點右上角「＋ 新增快照」輸入目前用量。
+            </p>
+          )}
+        </section>
+
+        {/* ---------- Forecast ---------- */}
+        <section className="card" aria-label="用量預測">
+          <div className="card-title">
+            <h3>用量預測</h3>
+            {forecast && <ConfidenceBadge value={forecast.confidence} />}
+          </div>
+          {forecast && latest ? (
+            <>
+              <div className="metric-row">
+                <span className="label">預估耗盡時間</span>
+                <span className="value">
+                  {forecast.estimatedExhaustionAt ? formatDateTime(forecast.estimatedExhaustionAt) : "—"}
+                </span>
+              </div>
+              <div className="metric-row">
+                <span className="label">會在重置前用完？</span>
+                <span className="value">
+                  {forecast.willExhaustBeforeReset === undefined ? (
+                    "—"
+                  ) : forecast.willExhaustBeforeReset ? (
+                    <Badge tone="danger">可能會</Badge>
+                  ) : (
+                    <Badge tone="ok">預估不會</Badge>
+                  )}
+                </span>
+              </div>
+              <div className="metric-row">
+                <span className="label">重置時預估剩餘</span>
+                <span className="value">{pct(forecast.estimatedRemainingAtReset)}</span>
+              </div>
+              <div className="metric-row">
+                <span className="label">消耗速度（6h / 24h / 週期）</span>
+                <span className="value mono">
+                  {[forecast.burnRate6h, forecast.burnRate24h, forecast.burnRateCurrentCycle]
+                    .map((r) => (r === undefined ? "—" : `${r.toFixed(1)}%/h`))
+                    .join(" · ")}
+                </span>
+              </div>
+              <ConfidenceReasons reasons={forecast.warnings} />
+            </>
+          ) : (
+            <p className="muted" style={{ padding: "18px 0" }}>
+              需要至少兩筆有效快照才能開始預測。
+            </p>
+          )}
+        </section>
+
+        {/* ---------- Remaining tasks ---------- */}
+        <section className="card" aria-label="剩餘任務估算">
+          <div className="card-title">
+            <h3>相似任務還能做幾次</h3>
+          </div>
+          {latest ? (
+            estimates.map((est) => (
+              <div className="metric-row" key={est.taskType}>
+                <span className="label">{TASK_TYPE_LABELS[est.taskType]}</span>
+                <span className="value">
+                  {est.sampleCount >= 3 ? (
+                    `約 ${est.minimum} ～ ${est.maximum} 次`
+                  ) : (
+                    <span className="faint">資料不足（{est.sampleCount}/3 筆）</span>
+                  )}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="muted" style={{ padding: "18px 0" }}>
+              先新增快照與活動紀錄，才能估算剩餘任務次數。
+            </p>
+          )}
+          <p className="faint" style={{ marginTop: 10 }}>
+            依最近同類型活動的用量差異估算，僅供參考。至少需要 3 筆有效的同類活動紀錄。
+          </p>
+        </section>
+
+        {/* ---------- Plan recommendation ---------- */}
+        <section className="card" aria-label="方案建議">
+          <div className="card-title">
+            <h3>方案建議</h3>
+            <ConfidenceBadge value={recommendation.confidence} />
+          </div>
+          <div className="usage-row" style={{ marginTop: 2 }}>
+            <strong style={{ fontSize: 24 }}>
+              {recommendation.recommendation === "upgrade" && "建議升級"}
+              {recommendation.recommendation === "keep" && "維持目前方案"}
+              {recommendation.recommendation === "downgrade" && "可考慮降級"}
+              {recommendation.recommendation === "insufficient_data" && "資料不足"}
+            </strong>
+          </div>
+          {plan && (
+            <div className="metric-row">
+              <span className="label">目前方案</span>
+              <span className="value">
+                {plan.name} · {plan.currency} {plan.monthlyPrice}/月
+              </span>
+            </div>
+          )}
+          <div className="metric-row">
+            <span className="label">近四週平均利用率</span>
+            <span className="value">{pct(recommendation.fourWeekAverageUtilization)}</span>
+          </div>
+          <div className="metric-row">
+            <span className="label">提前用完的週期</span>
+            <span className="value">
+              {recommendation.earlyExhaustedCycles ?? 0} / {recommendation.evaluatedCycles}
+            </span>
+          </div>
+          <ConfidenceReasons reasons={recommendation.reasons} />
+        </section>
+      </div>
+
+      {showSnapshotForm && limit && (
+        <SnapshotFormModal limit={limit} onClose={() => setShowSnapshotForm(false)} />
+      )}
+    </>
+  );
+}
