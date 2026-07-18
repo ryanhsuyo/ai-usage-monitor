@@ -261,7 +261,7 @@ function WindowControls() {
   return (
     <><div className="window-drag-handle" data-tauri-drag-region aria-hidden onMouseDown={startDragging} />
     <div className="window-controls" aria-label="視窗控制">
-      <button type="button" onClick={minimizeToDock} title="收進 Dock（⌘M）" aria-label="收進 Dock"><WindowControlIcon type="dock" /><span>收進 Dock</span></button>
+      <button type="button" onClick={minimizeToDock} title="最小化到 Dock（⌘M）" aria-label="最小化到 Dock"><WindowControlIcon type="minimize" /><span>最小化</span></button>
       <button type="button" className={stripMode ? "on" : ""} onClick={toggleStrip} title={stripMode ? "展開成小工具卡片" : "縮成極簡橫條"} aria-pressed={stripMode}><WindowControlIcon type={stripMode ? "strip-expand" : "strip-collapse"} /><span>{stripMode ? "展開卡片" : "極簡橫條"}</span></button>
       <button type="button" className={alwaysOnTop ? "on" : ""} onClick={togglePinned} title={alwaysOnTop ? "取消置頂" : "永遠置頂"} aria-pressed={alwaysOnTop}>
         <WindowControlIcon type="pin" filled={alwaysOnTop} /><span>{alwaysOnTop ? "取消置頂" : "置頂"}</span>
@@ -273,16 +273,16 @@ function WindowControls() {
   );
 }
 
-type WindowControlIconType = "dock" | "strip-collapse" | "strip-expand" | "pin" | "widget" | "full";
+type WindowControlIconType = "minimize" | "strip-collapse" | "strip-expand" | "pin" | "widget" | "full";
 
 function WindowControlIcon({ type, filled = false }: { type: WindowControlIconType; filled?: boolean }) {
-  return <svg className="window-control-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round">
-    {type === "dock" && <><rect x="2.5" y="2" width="11" height="7" rx="1.4" /><path d="M8 5v6m-2-2 2 2 2-2M2.5 14h11" /></>}
-    {type === "strip-collapse" && <><rect x="2.5" y="2" width="11" height="7" rx="1.4" /><path d="M8 5v6m-2-2 2 2 2-2M3 14h10" /></>}
-    {type === "strip-expand" && <><rect x="2.5" y="12" width="11" height="2" rx="1" /><path d="M8 11V5m-2 2 2-2 2 2" /><rect x="3.5" y="2" width="9" height="7" rx="1.3" /></>}
-    {type === "pin" && <path fill={filled ? "currentColor" : "none"} d="m5 2 6 0-1.4 3.2 2.2 2.2v1.1H8.7L8 14 7.3 8.5H4.2V7.4l2.2-2.2L5 2Z" />}
-    {type === "widget" && <><rect x="2" y="2.5" width="12" height="11" rx="2" /><rect x="7" y="6" width="5" height="5" rx="1" fill="currentColor" stroke="none" /></>}
-    {type === "full" && <><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4" /><path d="m2 6 4-4m4 0 4 4M2 10l4 4m4 0 4-4" /></>}
+  return <svg className="window-control-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {type === "minimize" && <path d="M5 12h14" />}
+    {type === "strip-collapse" && <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 8h18M9 15l3 3 3-3" /></>}
+    {type === "strip-expand" && <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 16h18M9 9l3-3 3 3" /></>}
+    {type === "pin" && <><path fill={filled ? "currentColor" : "none"} d="M12 17v5M5 17h14M15 3v4l2 3v2H7v-2l2-3V3" /><path d="M8 3h8" /></>}
+    {type === "widget" && <><rect x="3" y="3" width="18" height="18" rx="2" /><rect x="11" y="11" width="7" height="6" rx="1" fill={filled ? "currentColor" : "none"} /></>}
+    {type === "full" && <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /><path d="m3 8 5-5m8 0 5 5M3 16l5 5m8 0 5-5" /></>}
   </svg>;
 }
 

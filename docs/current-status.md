@@ -79,6 +79,7 @@
 - 視窗控制另提供 macOS 標準「收進 Dock（⌘M）」；最小化不改變完整／小工具／極簡模式，從 Dock 恢復時回到原本狀態
 - macOS 無邊框 compact 視窗在最小化前會明確恢復原生 miniaturizable 能力；極簡／小工具切換圖示改為 `▬`／`▦`，避免與 Dock 收起混淆
 - 四顆視窗控制改用一致線框 SVG，分別具象呈現「視窗進 Dock、卡片壓成橫條／展開、圖釘、浮動小視窗／四角展開」，不再依賴難辨識的 Unicode 符號
+- 視窗控制收斂到 Lucide 常見語彙：最小化採標準 Minus，另使用 Panel 收合／展開、Pin、Picture-in-Picture 與 Maximize；避免自創「視窗進 Dock」圖在 15px 下難以辨識
 - 文件全套（README、AGENTS、docs/*）
 
 ## 未完成（Roadmap）

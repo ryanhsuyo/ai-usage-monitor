@@ -1,5 +1,10 @@
 # Handoff Log
 
+## 2026-07-19 — 採用通用視窗圖示語彙
+
+- 最小化改用 macOS／Windows 都熟悉的單一橫線 Minus；極簡使用 Panel 收合／展開，其他使用 Pin、Picture-in-Picture、Maximize。
+- 圖示統一為 Lucide 風格的 24px viewBox、2px round stroke，不新增整套 icon library 依賴。
+
 ## 2026-07-19 — 視窗控制圖示語意重設計
 
 - 四顆控制改為同一套 16px 線框 SVG：視窗進 Dock、卡片／橫條雙向切換、圖釘、浮窗／全螢幕展開。
