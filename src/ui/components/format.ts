@@ -48,6 +48,21 @@ export function formatCountdown(iso: string | undefined, nowMs = Date.now()): st
   return `${m} 分鐘`;
 }
 
+export function formatCompactCountdown(iso: string | undefined, nowMs = Date.now()): string | undefined {
+  if (!iso) return undefined;
+  const target = Date.parse(iso);
+  if (!Number.isFinite(target)) return undefined;
+  const diffMs = target - nowMs;
+  if (diffMs <= 0) return "重置中";
+  const totalMinutes = Math.floor(diffMs / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}天${hours}時`;
+  if (hours > 0) return `${hours}時${minutes}分`;
+  return `${minutes}分`;
+}
+
 export function pct(value: number | undefined, digits = 0): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
   return `${value.toFixed(digits)}%`;
@@ -72,8 +87,9 @@ export const SOURCE_LABELS: Record<string, string> = {
 };
 
 export const EVENT_TYPE_LABELS: Record<string, string> = {
+  quota_expiring: "額度即將到期",
   reset_expected: "預計重置",
-  reset_confirmed: "確認重置",
+  reset_confirmed: "臨時／提前重置",
   usage_warning: "即將用完",
   exhaustion_forecast: "耗盡預測",
   polling_failed: "同步失敗",

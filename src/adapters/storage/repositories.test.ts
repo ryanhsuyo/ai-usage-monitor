@@ -184,7 +184,7 @@ describe("repository layer over SqlDatabase (spec §20 repository cases)", () =>
       enabled: true,
       secretRef: "notification-channel:discord:ch-1",
       eventPreferences: {
-        reset_expected: false,
+        quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
         usage_warning: true,
         exhaustion_forecast: true,

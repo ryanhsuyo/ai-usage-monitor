@@ -30,7 +30,7 @@ export const ManualProviderAdapter: UsageProviderAdapter = {
   },
 };
 
-/** Coming-later stubs. Each states its status honestly and returns `unsupported`. */
+/** Browser integrations remain explicit coming-later stubs. */
 export const ClaudeBrowserAdapter: UsageProviderAdapter = {
   id: "claude-browser",
   providerId: "claude",
@@ -45,9 +45,9 @@ export const ClaudeCodeLocalAdapter: UsageProviderAdapter = {
   id: "claude-code-local",
   providerId: "claude",
   displayName: "Claude Code 本機資料",
-  supportsAutomaticPolling: false,
+  supportsAutomaticPolling: true,
   async fetchUsage() {
-    return unsupported("Claude Code Local Adapter 尚未實作（Roadmap Phase 2）。");
+    return unsupported("Claude Code 本機用量由背景 Collector 讀取 ~/.claude.json 的官方 /usage 快取。");
   },
 };
 
@@ -55,9 +55,9 @@ export const CodexLocalAdapter: UsageProviderAdapter = {
   id: "codex-local",
   providerId: "codex",
   displayName: "Codex 本機資料",
-  supportsAutomaticPolling: false,
+  supportsAutomaticPolling: true,
   async fetchUsage() {
-    return unsupported("Codex Local Adapter 尚未實作（Roadmap Phase 2）。");
+    return unsupported("Codex 本機用量由背景 Collector 自動讀取並寫入，不透過通用 fetchUsage 呼叫。");
   },
 };
 

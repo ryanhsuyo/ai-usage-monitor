@@ -4,6 +4,7 @@
 // Secrets are resolved from SecretStore at send time only and never persisted or logged.
 
 import type { CandidateEvent } from "@/domain/notificationEvents";
+import { isChannelNotificationEventEnabled } from "@/domain/limitNotificationPreferences";
 import { shouldSend } from "@/domain/dedup";
 import { isQuietAt } from "@/domain/quietHours";
 import { passesMinInterval } from "@/domain/quietHours";
@@ -145,7 +146,7 @@ export function createNotificationDispatcher(deps: DispatcherDeps) {
 
         for (const channel of channels) {
           // per-channel event preference
-          if (channel.eventPreferences[event.eventType] !== true) continue;
+          if (!isChannelNotificationEventEnabled(channel.eventPreferences, event.eventType)) continue;
 
           // dedup: never resend a successfully-sent (eventKey, channel)
           const deliveries = await deps.repo.listDeliveries({
@@ -212,14 +213,17 @@ export function createNotificationDispatcher(deps: DispatcherDeps) {
     },
 
     /** Send a test message straight to one channel (bypasses dedup; used by Settings). */
-    async sendTest(channel: NotificationChannelConfig): Promise<{ ok: boolean; message?: string }> {
+    async sendTest(
+      channel: NotificationChannelConfig,
+      preview?: { title: string; body: string; severity: "info" | "warning" | "critical" }
+    ): Promise<{ ok: boolean; message?: string }> {
       const adapter = deps.adapters[channel.type];
       if (!adapter) return { ok: false, message: `未知的通知管道類型 ${channel.type}` };
       let secret: string | undefined;
       if (channel.secretRef) {
         secret = (await deps.secretStore.getSecret(channel.secretRef)) ?? undefined;
       }
-      const result = await adapter.send(channel, { secret }, {
+      const result = await adapter.send(channel, { secret }, preview ?? {
         title: "AI Usage Monitor 測試通知",
         body: "如果你看到這則訊息，表示通知管道設定成功。",
         severity: "info",

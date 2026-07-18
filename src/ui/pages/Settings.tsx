@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { getAppServices } from "../appServices";
 import { ConfirmDialog, Modal, Switch, toast } from "../components/atoms";
 import { useAppStore } from "../state/store";
-import { SETTINGS_KEYS, settingBool, settingNum } from "@/services/settingsKeys";
+import { SETTINGS_KEYS, settingBool, settingNum, settingStripRightInfo, settingStripSize } from "@/services/settingsKeys";
 import type { ImportSummary } from "@/services/exportImport";
 
 export function SettingsPage() {
@@ -24,6 +24,10 @@ export function SettingsPage() {
   const monitoringPaused = settingBool(s[SETTINGS_KEYS.monitoringPaused], false);
   const warnPercent = settingNum(s[SETTINGS_KEYS.usageWarningRemainingPercent], 15);
   const staleHours = settingNum(s[SETTINGS_KEYS.dataStaleHours], 8);
+  const stripSize = settingStripSize(s[SETTINGS_KEYS.stripSize]);
+  const stripRightInfo = settingStripRightInfo(s[SETTINGS_KEYS.stripRightInfo]);
+  const widgetIdleOpacity = Math.min(100, Math.max(40, settingNum(s[SETTINGS_KEYS.widgetIdleOpacity], 72)));
+  const widgetHoverOpaque = settingBool(s[SETTINGS_KEYS.widgetHoverOpaque], true);
 
   async function setSetting(key: string, value: string) {
     const services = await getAppServices();
@@ -71,6 +75,28 @@ export function SettingsPage() {
       a.click();
       URL.revokeObjectURL(a.href);
       toast.success("已下載匯出檔");
+    }
+  }
+
+  async function exportDiagnostics() {
+    const services = await getAppServices();
+    const text = await services.diagnosticLogger.exportText();
+    const fileName = `ai-usage-monitor-diagnostics-${new Date().toISOString().slice(0, 10)}.json`;
+    if (services.isTauri) {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({ defaultPath: fileName, filters: [{ name: "JSON", extensions: ["json"] }] });
+      if (!path) return;
+      const fs = await import("@tauri-apps/plugin-fs");
+      await fs.writeTextFile(path, text);
+      toast.success("已匯出診斷資料");
+    } else {
+      const blob = new Blob([text], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success("已下載診斷資料");
     }
   }
 
@@ -232,6 +258,45 @@ export function SettingsPage() {
 
       <div className="section">
         <div className="section-title">
+          <h2>極簡小工具</h2>
+        </div>
+        <div className="card">
+          <div className="form-row">
+            <label className="field">
+              顯示尺寸
+              <select aria-label="顯示尺寸" value={stripSize} onChange={(e) => void setSetting(SETTINGS_KEYS.stripSize, e.target.value)}>
+                <option value="small">小（240 × 134）</option>
+                <option value="medium">中（280 × 150）</option>
+                <option value="large">大（330 × 172）</option>
+              </select>
+              <span className="hint">極簡模式開啟時立即套用，並記住你的選擇。</span>
+            </label>
+            <label className="field">
+              右側資訊
+              <select aria-label="右側資訊" value={stripRightInfo} onChange={(e) => void setSetting(SETTINGS_KEYS.stripRightInfo, e.target.value)}>
+                <option value="both">重置與預估用完</option>
+                <option value="reset">只顯示重置</option>
+                <option value="exhaustion">只顯示預估用完</option>
+                <option value="cost">API 等值金額</option>
+              </select>
+              <span className="hint">金額是依本機 Token 換算的 API 等值，不是訂閱實際扣款。</span>
+            </label>
+            <label className="field">
+              閒置不透明度（%）
+              <input type="number" min={40} max={100} step={5} defaultValue={widgetIdleOpacity} onBlur={(e) => {
+                const value = Math.min(100, Math.max(40, Number(e.currentTarget.value) || 72));
+                e.currentTarget.value = String(value);
+                void setSetting(SETTINGS_KEYS.widgetIdleOpacity, String(value));
+              }} />
+              <span className="hint">40% 最透明，100% 完全不透明。</span>
+            </label>
+          </div>
+          <Switch checked={widgetHoverOpaque} onChange={(v) => void setSetting(SETTINGS_KEYS.widgetHoverOpaque, String(v))} label="滑鼠移入時恢復清晰" description="關閉後，小工具操作時也維持你設定的透明度。" />
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="section-title">
           <h2>門檻</h2>
         </div>
         <div className="card">
@@ -283,6 +348,12 @@ export function SettingsPage() {
               開啟資料目錄
             </button>
             <span className="faint">匯出檔不含 Webhook URL、Token 或任何 Secret。</span>
+          </div>
+          <div className="row" style={{ borderTop: "1px solid #edf0f2", paddingTop: 12, paddingBottom: 12 }}>
+            <button type="button" className="btn" onClick={() => void exportDiagnostics()}>
+              匯出診斷資料
+            </button>
+            <span className="faint">僅含版本、平台、視窗模式與同步成功／失敗事件；不含用量資料、對話、Token 或 Secret。</span>
           </div>
           <div className="row" style={{ borderTop: "1px solid #edf0f2", paddingTop: 12 }}>
             {store.demoMode ? (

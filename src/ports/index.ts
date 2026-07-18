@@ -35,6 +35,15 @@ export interface BackgroundRuntime {
   stop(): Promise<void>;
 }
 
+export interface UsageCacheWatcher {
+  watchClaudeCache(onChange: () => void): Promise<() => void>;
+}
+
+export interface DiagnosticLogger {
+  log(level: "info" | "warn" | "error", event: string, detail?: string): Promise<void>;
+  exportText(): Promise<string>;
+}
+
 export interface SecretStore {
   setSecret(key: string, value: string): Promise<void>;
   getSecret(key: string): Promise<string | null>;

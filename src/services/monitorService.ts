@@ -6,6 +6,12 @@
 import { computeForecast } from "@/domain/forecast";
 import { detectReset } from "@/domain/resetDetection";
 import {
+  isLimitNotificationEventEnabled,
+  limitUsageWarningThreshold,
+  parseLimitNotificationPreferences,
+  parseLimitUsageWarningThresholds,
+} from "@/domain/limitNotificationPreferences";
+import {
   evaluateNotificationEvents,
   type CandidateEvent,
 } from "@/domain/notificationEvents";
@@ -39,6 +45,27 @@ const LIMIT_TYPE_LABELS: Record<string, string> = {
   custom: "自訂額度",
 };
 
+function codexResetCreditMetadata(note: string | undefined): {
+  resetAvailableCount?: number;
+  resetCredits?: Array<{ title: string; expiresAtUnix?: number }>;
+} | undefined {
+  if (!note?.startsWith("AUTO:")) return undefined;
+  try {
+    const parsed = JSON.parse(note.slice(5)) as Record<string, unknown>;
+    if (parsed.kind !== "codex-local") return undefined;
+    return {
+      resetAvailableCount: typeof parsed.resetAvailableCount === "number" ? parsed.resetAvailableCount : undefined,
+      resetCredits: Array.isArray(parsed.resetCredits)
+        ? parsed.resetCredits.filter((item): item is { title: string; expiresAtUnix?: number } =>
+            Boolean(item) && typeof item === "object" && typeof (item as { title?: unknown }).title === "string"
+          )
+        : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export type LimitCheckResult = {
   limit: UsageLimit;
   forecast: ForecastResult;
@@ -63,6 +90,7 @@ export type MonitorDeps = {
   settingsRepo: SettingsRepository;
   dispatcher: NotificationDispatcher;
   now?: () => string;
+  collectLocalUsage?: () => Promise<number>;
 };
 
 export function createMonitorService(deps: MonitorDeps) {
@@ -145,6 +173,16 @@ export function createMonitorService(deps: MonitorDeps) {
     });
 
     const settings = await deps.settingsRepo.getAll();
+    const limitPreferences = parseLimitNotificationPreferences(
+      settings[SETTINGS_KEYS.limitEventPreferences]
+    );
+    const globalUsageWarningThreshold = settingNum(
+      settings[SETTINGS_KEYS.usageWarningRemainingPercent],
+      15
+    );
+    const limitUsageWarningThresholds = parseLimitUsageWarningThresholds(
+      settings[SETTINGS_KEYS.limitUsageWarningThresholds]
+    );
     const candidates = limit.notifyEnabled
       ? evaluateNotificationEvents({
           providerId: (latest?.providerId ?? "custom") as CandidateEvent["providerId"] & string,
@@ -157,13 +195,20 @@ export function createMonitorService(deps: MonitorDeps) {
           currentUsedPercent: latest?.usedPercent,
           remainingPercent: latest ? latest.remainingPercent : undefined,
           nextResetAt: latest?.resetAt,
+          windowHours: limit.windowHours,
           forecast,
           resetOutcome: outcome.kind === "none" ? undefined : outcome,
           lastSuccessAt: latest?.capturedAt,
+          resetCredits: codexResetCreditMetadata(latest?.note)?.resetCredits,
+          resetCreditsAvailable: codexResetCreditMetadata(latest?.note)?.resetAvailableCount,
           settings: {
             usageWarningRemainingPercent: settingNum(
-              settings[SETTINGS_KEYS.usageWarningRemainingPercent],
-              15
+              String(limitUsageWarningThreshold(
+                limitUsageWarningThresholds,
+                limit.id,
+                globalUsageWarningThreshold
+              )),
+              globalUsageWarningThreshold
             ),
             dataStaleHours: settingNum(settings[SETTINGS_KEYS.dataStaleHours], 8),
             exhaustionWarningLeadHours: settingNum(
@@ -171,7 +216,9 @@ export function createMonitorService(deps: MonitorDeps) {
               6
             ),
           },
-        })
+        }).filter((candidate) =>
+          isLimitNotificationEventEnabled(limitPreferences, limit.id, candidate.eventType)
+        )
       : [];
 
     return { limit, forecast, latest, resetEventRecorded, candidates };
@@ -199,6 +246,7 @@ export function createMonitorService(deps: MonitorDeps) {
       await deps.schedulerRepo.insertRun(run);
 
       try {
+        await deps.collectLocalUsage?.().catch(() => 0);
         const limits = (await deps.providerRepo.listLimits()).filter(
           (l) => l.active && l.monitoringEnabled
         );

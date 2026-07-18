@@ -130,7 +130,7 @@ export function OnboardingPage() {
           displayName: "桌面通知",
           enabled: true,
           eventPreferences: {
-            reset_expected: true,
+            quota_expiring: true, reset_expected: true,
             reset_confirmed: true,
             usage_warning: true,
             exhaustion_forecast: true,

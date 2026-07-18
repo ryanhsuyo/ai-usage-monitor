@@ -122,6 +122,20 @@ describe("notification event generation (spec §9)", () => {
     expect(e!.eventKey).toContain("reset_expected");
   });
 
+  it("warns when meaningful unused weekly allowance is close to expiry", () => {
+    const events = evaluateNotificationEvents({
+      ...baseCtx,
+      now: at(10),
+      nextResetAt: at(30),
+      remainingPercent: 68,
+      windowHours: 168,
+    });
+    const event = events.find((item) => item.eventType === "quota_expiring");
+    expect(event?.title).toContain("即將到期");
+    expect(event?.body).toContain("68%");
+    expect(event?.body).toContain("平均每小時");
+  });
+
   it("emits reset_confirmed with the new usage and next reset", () => {
     const events = evaluateNotificationEvents({
       ...baseCtx,
@@ -163,6 +177,22 @@ describe("notification event generation (spec §9)", () => {
   it("emits usage_warning at the remaining threshold", () => {
     const events = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 10 });
     expect(events.some((x) => x.eventType === "usage_warning")).toBe(true);
+  });
+
+  it("emits a deduplicated expiry event for a Codex reset credit", () => {
+    const expiresAtUnix = Math.floor(Date.parse(at(30)) / 1000);
+    const events = evaluateNotificationEvents({
+      ...baseCtx,
+      providerId: "codex",
+      providerLabel: "Codex",
+      currentUsedPercent: 85,
+      resetCreditsAvailable: 2,
+      resetCredits: [{ title: "Full reset", expiresAtUnix }],
+    });
+    const event = events.find((item) => item.title.includes("Full reset"));
+    expect(event?.eventType).toBe("quota_expiring");
+    expect(event?.body).toMatch(/最晚安全使用時間|依目前資料/);
+    expect(event?.severity).toBe("warning");
   });
 
   it("emits data_stale after the staleness threshold", () => {

@@ -10,6 +10,8 @@
     "core:window:allow-close",
     "core:window:allow-set-focus",
     "core:window:allow-center",
+    "core:window:allow-set-size",
+    "core:window:allow-set-always-on-top",
     "core:app:allow-app-hide",
     "core:tray:default",
     "core:menu:default",
@@ -18,6 +20,9 @@
     "fs:default",
     "fs:allow-appdata-read",
     "fs:allow-appdata-write",
+    "fs:allow-watch",
+    "fs:allow-unwatch",
+    "fs:scope-home",
     {
       "identifier": "http:default",
       "allow": [{ "url": "https://**" }]

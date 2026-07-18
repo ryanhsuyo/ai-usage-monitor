@@ -7,8 +7,10 @@
 import type {
   AutoStartService,
   BackgroundRuntime,
+  DiagnosticLogger,
   SecretStore,
   SystemNotifier,
+  UsageCacheWatcher,
 } from "@/ports";
 
 export function isTauriRuntime(): boolean {
@@ -101,6 +103,55 @@ export class InMemoryBackgroundRuntime implements BackgroundRuntime {
   }
   async stop(): Promise<void> {
     this.running = false;
+  }
+}
+
+// ---------- Provider cache file events ----------
+
+export function createTauriUsageCacheWatcher(): UsageCacheWatcher {
+  return {
+    async watchClaudeCache(onChange) {
+      const [{ watch }, { homeDir, join }] = await Promise.all([
+        import("@tauri-apps/plugin-fs"),
+        import("@tauri-apps/api/path"),
+      ]);
+      const home = await homeDir();
+      const target = await join(home, ".claude.json");
+      return watch(home, (event) => {
+        if (event.paths.some((path) => path === target || path.endsWith("/.claude.json"))) onChange();
+      }, { recursive: false, delayMs: 300 });
+    },
+  };
+}
+
+export class InMemoryUsageCacheWatcher implements UsageCacheWatcher {
+  async watchClaudeCache(): Promise<() => void> {
+    return () => undefined;
+  }
+}
+
+// ---------- Privacy-safe diagnostics ----------
+
+export function createTauriDiagnosticLogger(): DiagnosticLogger {
+  return {
+    async log(level, event, detail) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("diagnostic_log", { level, event, detail });
+    },
+    async exportText() {
+      const { invoke } = await import("@tauri-apps/api/core");
+      return invoke<string>("diagnostic_export");
+    },
+  };
+}
+
+export class InMemoryDiagnosticLogger implements DiagnosticLogger {
+  public events: Array<{ level: "info" | "warn" | "error"; event: string; detail?: string }> = [];
+  async log(level: "info" | "warn" | "error", event: string, detail?: string): Promise<void> {
+    this.events.push({ level, event, detail });
+  }
+  async exportText(): Promise<string> {
+    return JSON.stringify({ format: "ai-usage-monitor-diagnostics-v1", events: this.events }, null, 2);
   }
 }
 

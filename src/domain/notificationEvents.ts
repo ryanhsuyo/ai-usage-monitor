@@ -14,6 +14,8 @@ import type {
   Severity,
 } from "./types";
 import { hoursBetween, isValidIso } from "./util";
+import { computeQuotaExpiry } from "./quotaExpiry";
+import { summarizeResetCredits, type ResetCreditExpiry } from "./resetCredits";
 
 export type CandidateEvent = {
   eventKey: string;
@@ -43,10 +45,13 @@ export type NotificationContext = {
   currentUsedPercent?: number;
   remainingPercent?: number;
   nextResetAt?: string;
+  windowHours?: number;
   forecast?: ForecastResult;
   resetOutcome?: ResetDetectionOutcome;
   lastSuccessAt?: string;
   pollingFailed?: boolean;
+  resetCredits?: ResetCreditExpiry[];
+  resetCreditsAvailable?: number;
   settings?: Partial<NotificationEvalSettings>;
 };
 
@@ -79,6 +84,59 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
   const anchorReset = ctx.resetOutcome?.expectedResetAt ?? ctx.nextResetAt ?? ctx.now;
   const cycleAnchor = ctx.nextResetAt ?? ctx.now;
 
+  // --- Codex Full reset credit expiry / use recommendation ---
+  if ((ctx.resetCreditsAvailable ?? 0) > 0 && ctx.resetCredits?.length) {
+    const credits = summarizeResetCredits(
+      ctx.resetCreditsAvailable ?? 0,
+      ctx.resetCredits,
+      ctx.now,
+      72,
+      ctx.currentUsedPercent ?? 0,
+      ctx.nextResetAt
+    );
+    const first = credits.recommendations[0];
+    if (first && (credits.expiringSoon || first.action === "use_now")) {
+      out.push({
+        ...base,
+        eventType: "quota_expiring",
+        eventKey: buildEventKey({
+          providerId: ctx.providerId,
+          limitKey: `${ctx.limitKey}:reset-credit`,
+          eventType: "quota_expiring",
+          anchorIso: first.expiresAt,
+        }),
+        title: `Codex Full reset 票券${first.action === "use_now" ? "建議現在使用" : "即將到期"}`,
+        body: `目前有 ${credits.availableCount} 張可用，最早一張將於 ${formatLocal(first.expiresAt)} 到期。\n${first.message}；依目前資料，最晚安全使用時間約為 ${formatLocal(first.latestUseAt)}。`,
+        severity: first.action === "use_now" ? "warning" : "info",
+      });
+    }
+  }
+
+  // --- Meaningful unused allowance will expire at the next provider reset ---
+  const expiry = computeQuotaExpiry({
+    now: ctx.now,
+    resetAt: ctx.nextResetAt,
+    remainingPercent: ctx.remainingPercent,
+    windowHours: ctx.windowHours,
+  });
+  if (expiry.expiring && ctx.nextResetAt) {
+    out.push({
+      ...base,
+      eventType: "quota_expiring",
+      eventKey: buildEventKey({
+        providerId: ctx.providerId,
+        limitKey: ctx.limitKey,
+        eventType: "quota_expiring",
+        anchorIso: ctx.nextResetAt,
+      }),
+      title: `${ctx.providerLabel} ${ctx.limitLabel}即將到期`,
+      body:
+        `依目前資料，仍剩約 ${Math.round(ctx.remainingPercent ?? 0)}%，將於 ${formatLocal(ctx.nextResetAt)} 重置。` +
+        `\n若希望在到期前充分使用，平均每小時可使用約 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour ?? 0))}%。`,
+      severity: "info",
+    });
+  }
+
   // --- Reset confirmed ---
   if (ctx.resetOutcome?.kind === "confirmed") {
     out.push({
@@ -90,7 +148,7 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
         eventType: "reset_confirmed",
         anchorIso: anchorReset,
       }),
-      title: `${ctx.providerLabel} 額度已確認重置`,
+      title: `${ctx.providerLabel} 額度可能臨時／提前重置`,
       body:
         `目前已使用 ${Math.round(ctx.currentUsedPercent ?? 0)}%。` +
         (ctx.nextResetAt ? `\n新的預計重置時間為 ${formatLocal(ctx.nextResetAt)}。` : ""),

@@ -6,6 +6,7 @@ import type {
   NotificationChannelConfig,
   NotificationDelivery,
   NotificationEvent,
+  DataSourceStatus,
   ProviderAccount,
   ResetEvent,
   SchedulerRun,
@@ -38,6 +39,7 @@ type AppData = {
   deliveries: NotificationDelivery[];
   settings: Record<string, string>;
   latestRun?: SchedulerRun;
+  dataSources: DataSourceStatus[];
 };
 
 type AppState = AppData & {
@@ -62,6 +64,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   events: [],
   deliveries: [],
   settings: {},
+  dataSources: [],
   page: "dashboard",
   demoMode: false,
   onboardingCompleted: true, // assume true until settings load to avoid flashing onboarding
@@ -71,7 +74,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   refresh: async () => {
     const services = await getAppServices();
-    const [accounts, plans, limits, activities, resetEvents, channels, events, deliveries, settings, latestRun] =
+    const [accounts, plans, limits, activities, resetEvents, channels, events, deliveries, settings, latestRun, dataSources] =
       await Promise.all([
         services.providerRepo.listAccounts(),
         services.providerRepo.listPlans(),
@@ -83,6 +86,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         services.notificationRepo.listDeliveries({}),
         services.settingsRepo.getAll(),
         services.schedulerRepo.latestRun(),
+        services.dataSourceRepo.list(),
       ]);
 
     const snapshotsByLimit: Record<string, UsageSnapshot[]> = {};
@@ -106,6 +110,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       deliveries,
       settings,
       latestRun,
+      dataSources,
       demoMode: settings["app.demoMode"] === "true",
       onboardingCompleted: settings["app.onboardingCompleted"] === "true",
       selectedLimitId: selected && limits.some((l) => l.id === selected) ? selected : firstActive?.id,

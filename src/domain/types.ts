@@ -42,6 +42,7 @@ export type NotificationChannelType =
   | "custom_webhook";
 
 export type NotificationEventType =
+  | "quota_expiring"
   | "reset_expected"
   | "reset_confirmed"
   | "usage_warning"

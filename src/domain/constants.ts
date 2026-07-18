@@ -30,6 +30,13 @@ export const REMAINING_TASKS = {
   OUTLIER_IQR_FACTOR: 1.5,
 } as const;
 
+export const RUNWAY = {
+  /** At or below this share of the safe pace, usage has a comfortable buffer. */
+  COMFORTABLE_PACE_RATIO: 0.85,
+  /** Above the safe pace, the current allowance may run out before reset. */
+  SLOW_DOWN_PACE_RATIO: 1,
+} as const;
+
 export const PLAN_RECOMMENDATION = {
   MIN_CYCLES: 4,
   MIN_DAYS: 28,
@@ -56,6 +63,11 @@ export const THRESHOLDS = {
   DATA_STALE_HOURS: 8,
   /** Warn if exhaustion is forecast to occur within this many hours before reset. */
   EXHAUSTION_WARNING_LEAD_HOURS: 6,
+  /** Warn about unused allowance shortly before the provider resets it. */
+  QUOTA_EXPIRY_MIN_REMAINING_PERCENT: 20,
+  QUOTA_EXPIRY_WINDOW_RATIO: 0.2,
+  QUOTA_EXPIRY_MIN_LEAD_HOURS: 1,
+  QUOTA_EXPIRY_MAX_LEAD_HOURS: 24,
 } as const;
 
 export const NOTIFICATION = {

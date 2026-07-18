@@ -102,10 +102,8 @@ describe("Dashboard", () => {
     await seedSnapshot(50, 1);
     render(<App />);
     expect(await screen.findByText("50%")).toBeInTheDocument();
-    // remaining-task card must show insufficient data, not numbers
-    const card = screen.getByLabelText("剩餘任務估算");
-    expect(within(card).getAllByText(/資料不足/).length).toBeGreaterThan(0);
-    expect(within(card).queryByText(/約 \d+ ～ \d+ 次/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("使用節奏")).toBeInTheDocument();
+    expect(screen.queryByLabelText("進階相似任務估算")).not.toBeInTheDocument();
   });
 
   it("plan recommendation shows insufficient data for a fresh setup", async () => {
@@ -120,7 +118,7 @@ describe("Dashboard", () => {
     await seedBasicLimit();
     await seedSnapshot(40, 10); // stale, single sample
     render(<App />);
-    const card = await screen.findByLabelText("用量預測");
+    const card = await screen.findByLabelText("用量續航");
     await waitFor(() => {
       expect(within(card).getByLabelText("可信度原因")).toBeInTheDocument();
     });
@@ -170,6 +168,42 @@ describe("Demo mode", () => {
 });
 
 describe("Notifications page", () => {
+  it("selects notification targets and explains Discord setup", async () => {
+    await seedBasicLimit();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "通知設定" }));
+
+    const target = await screen.findByRole("switch", { name: "通知 Weekly（全模型）" });
+    expect(target).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByText("分開設定這個額度的通知事件"));
+    const perLimitEvent = screen.getByRole("switch", { name: "Weekly（全模型） — 即將用完" });
+    await user.click(perLimitEvent);
+    await waitFor(async () => {
+      const raw = await (await getAppServices()).settingsRepo.get(SETTINGS_KEYS.limitEventPreferences);
+      expect(JSON.parse(raw ?? "{}")["lim-ui"].usage_warning).toBe(false);
+    });
+    await user.click(target);
+    await waitFor(async () => {
+      const limit = (await (await getAppServices()).providerRepo.listLimits()).find((item) => item.id === "lim-ui");
+      expect(limit?.notifyEnabled).toBe(false);
+    });
+
+    const threshold = screen.getByRole("spinbutton", { name: "即將用完門檻（剩餘百分比）" });
+    await user.clear(threshold);
+    await user.type(threshold, "25");
+    await user.tab();
+    await waitFor(async () => {
+      expect(await (await getAppServices()).settingsRepo.get(SETTINGS_KEYS.usageWarningRemainingPercent)).toBe("25");
+    });
+    expect(await screen.findByText("已設定：剩餘 25% 時通知")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "＋ 連接 Discord" }));
+    expect(await screen.findByText("如何取得 Discord Webhook URL")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("https://discord.com/api/webhooks/…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "儲存並測試" })).toBeInTheDocument();
+  });
+
   it("toggles channels and events; master switch disables everything", async () => {
     await seedBasicLimit();
     const services = await getAppServices();
@@ -179,7 +213,7 @@ describe("Notifications page", () => {
       displayName: "桌面通知",
       enabled: true,
       eventPreferences: {
-        reset_expected: true,
+        quota_expiring: true, reset_expected: true,
         reset_confirmed: true,
         usage_warning: true,
         exhaustion_forecast: true,
@@ -194,11 +228,11 @@ describe("Notifications page", () => {
     await user.click(await screen.findByRole("button", { name: "通知設定" }));
 
     // per-event toggle
-    const eventSwitch = await screen.findByRole("switch", { name: "桌面通知 — 確認重置" });
+    const eventSwitch = await screen.findByRole("switch", { name: "桌面通知 — 臨時／提前重置" });
     expect(eventSwitch).toHaveAttribute("aria-checked", "true");
     await user.click(eventSwitch);
     await waitFor(() =>
-      expect(screen.getByRole("switch", { name: "桌面通知 — 確認重置" })).toHaveAttribute(
+      expect(screen.getByRole("switch", { name: "桌面通知 — 臨時／提前重置" })).toHaveAttribute(
         "aria-checked",
         "false"
       )
@@ -219,7 +253,7 @@ describe("Notifications page", () => {
       displayName: "桌面",
       enabled: true,
       eventPreferences: {
-        reset_expected: true,
+        quota_expiring: true, reset_expected: true,
         reset_confirmed: true,
         usage_warning: true,
         exhaustion_forecast: true,
@@ -232,7 +266,7 @@ describe("Notifications page", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "通知設定" }));
-    await user.click(await screen.findByRole("button", { name: "測試" }));
+    await user.click(await screen.findByRole("button", { name: "測試連線" }));
     expect(await screen.findByText(/已送出測試通知/)).toBeInTheDocument();
 
     // failing channel: discord without a secret
@@ -242,7 +276,7 @@ describe("Notifications page", () => {
       displayName: "Discord 失敗",
       enabled: true,
       eventPreferences: {
-        reset_expected: false,
+        quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
         usage_warning: true,
         exhaustion_forecast: true,
@@ -253,7 +287,7 @@ describe("Notifications page", () => {
       updatedAt: nowIso(),
     });
     await useAppStore.getState().refresh();
-    const rows = await screen.findAllByRole("button", { name: "測試" });
+    const rows = await screen.findAllByRole("button", { name: "測試連線" });
     await user.click(rows[rows.length - 1]!);
     expect(await screen.findByText(/測試失敗/)).toBeInTheDocument();
   });
@@ -284,6 +318,21 @@ describe("Settings", () => {
         "true"
       )
     );
+  });
+
+  it("persists compact widget size and right-side information preferences", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "設定" }));
+
+    await user.selectOptions(screen.getByLabelText("顯示尺寸"), "large");
+    await user.selectOptions(screen.getByLabelText("右側資訊"), "cost");
+
+    await waitFor(async () => {
+      const services = await getAppServices();
+      expect(await services.settingsRepo.get("widget.stripSize")).toBe("large");
+      expect(await services.settingsRepo.get("widget.stripRightInfo")).toBe("cost");
+    });
   });
 });
 
@@ -337,7 +386,7 @@ describe("Secrets never reach the UI store or DB", () => {
       enabled: true,
       secretRef: "notification-channel:discord:x",
       eventPreferences: {
-        reset_expected: false,
+        quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
         usage_warning: true,
         exhaustion_forecast: true,

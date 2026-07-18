@@ -1,6 +1,6 @@
 # Assumptions（實作過程的合理假設）
 
-1. **App 名稱與 bundle id**：使用者選定 `ai-usage-monitor`；顯示名 "AI Usage Monitor"、bundle id `com.aiusagemonitor.app`。原資料夾 `ai-usage-management` 已由使用者搬移，工作目錄更名為 `~/Developer/ai-usage-monitor`。
+1. **App 名稱與 bundle id**：使用者選定 `ai-usage-monitor`；顯示名 "AI Usage Monitor"、v0.2 起 bundle id `com.aiusagemonitor.desktop`（舊 `com.aiusagemonitor.app` 資料會遷移，Keychain service 保持舊值）。原資料夾 `ai-usage-management` 已由使用者搬移，工作目錄更名為 `~/Developer/ai-usage-monitor`。
 2. **Node 18 環境**：鎖定 Vite 6 / Vitest 2（Node 18 相容），不用需要 Node 20+ 的 Vite 7 / Vitest 3。
 3. **Secret Store 策略**：使用者要求「最安全、符合產品」→ OS Keychain 為主（keyring crate），probe 失敗自動退回 AES-GCM 加密檔並於 UI 標示。
 4. **Claude 預設方案數字**（Pro $20 / Max 5x $100 / Max 20x $200，容量 1x/5x/20x）僅為可編輯的起始範本，非官方保證。

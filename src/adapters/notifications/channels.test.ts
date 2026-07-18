@@ -20,7 +20,7 @@ function config(partial: Partial<NotificationChannelConfig> = {}): NotificationC
     displayName: "Test",
     enabled: true,
     eventPreferences: {
-      reset_expected: true,
+    quota_expiring: true, reset_expected: true,
       reset_confirmed: true,
       usage_warning: true,
       exhaustion_forecast: true,
@@ -98,7 +98,7 @@ describe("channel adapters (spec §9)", () => {
     );
     expect(res.ok).toBe(true);
     expect(http.calls[0]!.url).toContain("discord.com");
-    expect((http.calls[0]!.body as { content: string }).content).toContain("測試通知");
+    expect((http.calls[0]!.body as { embeds: Array<{ title: string }> }).embeds[0]?.title).toContain("測試通知");
   });
 
   it("discord: missing/foreign webhook is rejected before any network call", async () => {
@@ -109,6 +109,35 @@ describe("channel adapters (spec §9)", () => {
     const wrongHost = await adapter.send(config(), { secret: "https://evil.com/hook" }, MESSAGE);
     expect(wrongHost.ok).toBe(false);
     expect(http.calls).toHaveLength(0);
+  });
+
+  it("discord: rejects lookalike domains and incomplete webhook paths", async () => {
+    const http = fakeHttp({ status: 204, ok: true });
+    const adapter = createDiscordAdapter(http);
+    await expect(adapter.validateConfiguration(config(), { secret: "https://evil-discord.com/api/webhooks/1/token" })).resolves.toMatchObject({ ok: false });
+    await expect(adapter.validateConfiguration(config(), { secret: "https://discord.com/channels/1/2" })).resolves.toMatchObject({ ok: false });
+    expect(http.calls).toHaveLength(0);
+  });
+
+  it("discord: sends a product embed and disables mentions", async () => {
+    const http = fakeHttp({ status: 204, ok: true });
+    const adapter = createDiscordAdapter(http);
+    await adapter.send(config(), { secret: "https://discord.com/api/webhooks/1/token" }, { title: "額度提醒", body: "剩餘 10%", severity: "warning" });
+    expect(http.calls[0]?.body).toMatchObject({
+      username: "AI Usage Monitor",
+      content: "⚠️ 額度提醒\n剩餘 10%",
+      allowed_mentions: { parse: [] },
+      embeds: [{ title: "⚠️ 額度提醒", description: "剩餘 10%", color: 0xd49a3a }],
+    });
+  });
+
+  it("discord: includes visible text even when the client does not render embeds", async () => {
+    const http = fakeHttp({ status: 204, ok: true });
+    const adapter = createDiscordAdapter(http);
+    await adapter.send(config(), { secret: "https://discord.com/api/webhooks/1/token" }, MESSAGE);
+    expect((http.calls[0]?.body as { content?: string }).content).toBe(
+      "ℹ️ 測試通知\n這是一則測試訊息。"
+    );
   });
 
   it("failure responses carry an error code and NEVER leak the secret", async () => {

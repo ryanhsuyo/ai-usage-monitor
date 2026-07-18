@@ -269,7 +269,7 @@ export function createDemoDataService(deps: DemoDeps) {
         displayName: "Demo Discord（未啟用示範）",
         enabled: false,
         eventPreferences: {
-          reset_expected: false,
+          quota_expiring: true, reset_expected: false,
           reset_confirmed: true,
           usage_warning: true,
           exhaustion_forecast: true,
@@ -289,7 +289,7 @@ export function createDemoDataService(deps: DemoDeps) {
         providerId: "claude",
         accountId: account.id,
         limitId: DEMO_IDS.weeklyLimit,
-        title: "Claude 額度已確認重置（Demo）",
+        title: "Claude 額度可能臨時／提前重置（Demo）",
         body: "目前已使用 2%。",
         severity: "info",
         createdAt: iso(reset2 + 1 * HOUR),

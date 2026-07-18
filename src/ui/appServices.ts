@@ -5,11 +5,15 @@ import {
   createBestSecretStore,
   createTauriAutoStart,
   createTauriBackgroundRuntime,
+  createTauriDiagnosticLogger,
   createTauriNotifier,
+  createTauriUsageCacheWatcher,
   InMemoryAutoStart,
   InMemoryBackgroundRuntime,
+  InMemoryDiagnosticLogger,
   InMemoryNotifier,
   InMemorySecretStore,
+  InMemoryUsageCacheWatcher,
   isTauriRuntime,
 } from "@/adapters/platform";
 import { createChannelAdapters } from "@/adapters/notifications/channels";
@@ -30,6 +34,7 @@ import {
 import type {
   AutoStartService,
   BackgroundRuntime,
+  DiagnosticLogger,
   DataSourceRepository,
   NotificationRepository,
   ProviderRepository,
@@ -40,6 +45,7 @@ import type {
   SystemNotifier,
   UsageActivityRepository,
   UsageSnapshotRepository,
+  UsageCacheWatcher,
 } from "@/ports";
 import { createDemoDataService, type DemoDataService } from "@/services/demoData";
 import { createExportImportService, type ExportImportService } from "@/services/exportImport";
@@ -49,8 +55,9 @@ import {
   type NotificationDispatcher,
 } from "@/services/notificationDispatcher";
 import { SETTINGS_KEYS, settingBool } from "@/services/settingsKeys";
+import { createLocalUsageCollector } from "@/services/localUsageCollector";
 
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.2.0";
 
 export type AppServices = {
   isTauri: boolean;
@@ -67,11 +74,14 @@ export type AppServices = {
   notifier: SystemNotifier;
   autoStart: AutoStartService;
   backgroundRuntime: BackgroundRuntime;
+  diagnosticLogger: DiagnosticLogger;
+  usageCacheWatcher: UsageCacheWatcher;
   dispatcher: NotificationDispatcher;
   monitor: MonitorService;
   scheduler: ReturnType<typeof createScheduler>;
   demo: DemoDataService;
   exportImport: ExportImportService;
+  collectLocalUsage: (onlyProviders?: Array<"codex" | "claude">) => Promise<number>;
 };
 
 /** Browser-preview HTTP poster: regular fetch (subject to CORS; fine for previews). */
@@ -114,6 +124,8 @@ async function buildServices(): Promise<AppServices> {
   let notifier: SystemNotifier;
   let autoStart: AutoStartService;
   let backgroundRuntime: BackgroundRuntime;
+  let diagnosticLogger: DiagnosticLogger;
+  let usageCacheWatcher: UsageCacheWatcher;
   let http: HttpPoster;
 
   if (tauri) {
@@ -123,6 +135,8 @@ async function buildServices(): Promise<AppServices> {
     notifier = createTauriNotifier();
     autoStart = createTauriAutoStart();
     backgroundRuntime = createTauriBackgroundRuntime();
+    diagnosticLogger = createTauriDiagnosticLogger();
+    usageCacheWatcher = createTauriUsageCacheWatcher();
     http = createTauriHttpPoster();
   } else {
     secretStore = new InMemorySecretStore();
@@ -130,6 +144,8 @@ async function buildServices(): Promise<AppServices> {
     notifier = new InMemoryNotifier();
     autoStart = new InMemoryAutoStart();
     backgroundRuntime = new InMemoryBackgroundRuntime();
+    diagnosticLogger = new InMemoryDiagnosticLogger();
+    usageCacheWatcher = new InMemoryUsageCacheWatcher();
     http = browserHttpPoster();
   }
 
@@ -145,6 +161,13 @@ async function buildServices(): Promise<AppServices> {
       settingBool(await settingsRepo.get(SETTINGS_KEYS.notificationsEnabled), true),
   });
 
+  const collectLocalUsage = createLocalUsageCollector(
+    providerRepo,
+    snapshotRepo,
+    dataSourceRepo,
+    diagnosticLogger,
+    tauri
+  );
   const monitor = createMonitorService({
     providerRepo,
     snapshotRepo,
@@ -152,9 +175,10 @@ async function buildServices(): Promise<AppServices> {
     schedulerRepo,
     settingsRepo,
     dispatcher,
+    collectLocalUsage,
   });
 
-  const scheduler = createScheduler(monitor, 1);
+  const scheduler = createScheduler(monitor, 5 / 60);
 
   const demo = createDemoDataService({
     providerRepo,
@@ -190,10 +214,13 @@ async function buildServices(): Promise<AppServices> {
     notifier,
     autoStart,
     backgroundRuntime,
+    diagnosticLogger,
+    usageCacheWatcher,
     dispatcher,
     monitor,
     scheduler,
     demo,
     exportImport,
+    collectLocalUsage,
   };
 }

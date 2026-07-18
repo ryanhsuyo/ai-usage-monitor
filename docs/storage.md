@@ -4,7 +4,7 @@
 
 - 引擎：`tauri-plugin-sql`（bundled SQLite）；使用者**不需要安裝任何東西**
 - 路徑：`sqlite:app.db` → plugin 解析至 `appDataDir()`（Tauri Path API；程式不寫死路徑）
-- macOS 實際位置：`~/Library/Application Support/com.aiusagemonitor.app/app.db`
+- macOS 實際位置：`~/Library/Application Support/com.aiusagemonitor.desktop/app.db`（v0.2 首次啟動會遷移舊 `com.aiusagemonitor.app` 資料）
 
 ## Migration
 

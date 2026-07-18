@@ -123,7 +123,7 @@ export function UsageLineChart(props: {
       </svg>
       <div className="row faint" style={{ marginTop: 8, gap: 16 }}>
         <span>— 已用百分比</span>
-        <span style={{ color: "#2f8577" }}>│ 確認重置</span>
+        <span style={{ color: "#2f8577" }}>│ 臨時／提前重置</span>
         <span style={{ color: "#cf9f4d" }}>┆ 預計重置</span>
         <span style={{ color: "#b64c47" }}>✕ 擷取失敗</span>
       </div>

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AI Usage Monitor",
-  "version": "0.1.0",
-  "identifier": "com.aiusagemonitor.app",
+  "version": "0.2.0",
+  "identifier": "com.aiusagemonitor.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1422",
@@ -10,13 +10,15 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "AI Usage Monitor",
         "width": 1180,
         "height": 820,
-        "minWidth": 900,
-        "minHeight": 640,
+        "minWidth": 220,
+        "minHeight": 250,
+        "transparent": true,
         "resizable": true,
         "fullscreen": false,
         "visible": true
@@ -24,13 +26,6 @@
     ],
     "security": {
       "csp": null
-    },
-    "trayIcon": {
-      "id": "main-tray",
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "AI Usage Monitor",
-      "menuOnLeftClick": false
     }
   },
   "bundle": {

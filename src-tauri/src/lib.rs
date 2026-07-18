@@ -10,19 +10,170 @@
 //! All forecasting, dedup, scheduling *decisions* etc. live in the TypeScript domain layer.
 
 mod secret;
+mod local_usage;
+mod diagnostics;
 
 use std::sync::Mutex;
+use std::{fs, path::PathBuf};
 
 use tauri::{
+    LogicalSize, PhysicalPosition, Position, Size,
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
+    window::Color,
     Emitter, Manager, WindowEvent,
 };
+
+fn target_monitor(window: &tauri::WebviewWindow) -> Result<Option<tauri::Monitor>, String> {
+    window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .map(Some)
+        .map(Ok)
+        .unwrap_or_else(|| window.primary_monitor().map_err(|e| e.to_string()))
+}
+
+fn position_for_target_size(
+    window: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+    top_right: bool,
+) -> Result<(), String> {
+    if let Some(monitor) = target_monitor(window)? {
+        let monitor_pos = monitor.position();
+        let monitor_size = monitor.size();
+        let scale = monitor.scale_factor();
+        let target_width = (width * scale).round() as i32;
+        let target_height = (height * scale).round() as i32;
+        let top_margin = (12.0 * scale).round() as i32;
+        // Do not query outer_size here: macOS can briefly return the previous mode's size after
+        // set_size(), which was the reason compact windows missed the top-right and full windows
+        // retained the old right-edge coordinate.
+        let (x, y) = if top_right {
+            (
+                monitor_pos.x + monitor_size.width as i32 - target_width,
+                monitor_pos.y + top_margin,
+            )
+        } else {
+            (
+                monitor_pos.x + (monitor_size.width as i32 - target_width) / 2,
+                monitor_pos.y + (monitor_size.height as i32 - target_height) / 2,
+            )
+        };
+        window
+            .set_position(Position::Physical(PhysicalPosition::new(x, y)))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_window_mode(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    widget_state: tauri::State<WidgetModeState>,
+    pinned_state: tauri::State<PinnedState>,
+    mode: String,
+    pinned: bool,
+    strip_size: Option<String>,
+) -> Result<(), String> {
+    let widget = mode != "full";
+    let strip = mode == "strip";
+    if !matches!(mode.as_str(), "full" | "widget" | "strip") {
+        return Err(format!("未知的視窗模式：{mode}"));
+    }
+    let (width, height, min_width, min_height) = if strip {
+        match strip_size.as_deref() {
+            Some("small") => (240.0, 134.0, 210.0, 90.0),
+            Some("large") => (330.0, 172.0, 290.0, 120.0),
+            _ => (280.0, 150.0, 250.0, 100.0),
+        }
+    } else if widget {
+        (240.0, 300.0, 220.0, 250.0)
+    } else {
+        // Size against the current monitor in logical points. A fixed 1180×820 window is wider
+        // than many Retina laptop displays even though their screenshot pixel dimensions look
+        // large, so centering alone still leaves the right side off-screen.
+        let (monitor_width, monitor_height) = window.current_monitor()
+            .map_err(|e| e.to_string())?
+            .map(|monitor| {
+                let scale = monitor.scale_factor();
+                (monitor.size().width as f64 / scale, monitor.size().height as f64 / scale)
+            })
+            .unwrap_or((1200.0, 800.0));
+        (
+            (monitor_width * 0.86).clamp(720.0, 1100.0),
+            (monitor_height * 0.82).clamp(520.0, 760.0),
+            720.0,
+            520.0,
+        )
+    };
+    window
+        .set_min_size(Some(Size::Logical(LogicalSize::new(min_width, min_height))))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_size(Size::Logical(LogicalSize::new(width, height)))
+        .map_err(|e| e.to_string())?;
+    window.set_decorations(!widget).map_err(|e| e.to_string())?;
+    window.set_resizable(!widget).map_err(|e| e.to_string())?;
+    window.set_skip_taskbar(widget).map_err(|e| e.to_string())?;
+    window.set_visible_on_all_workspaces(widget).map_err(|e| e.to_string())?;
+    window.set_always_on_top(pinned).map_err(|e| e.to_string())?;
+    window
+        .set_background_color(Some(if widget {
+            Color(0, 0, 0, 0)
+        } else {
+            Color(246, 247, 249, 255)
+        }))
+        .map_err(|e| e.to_string())?;
+    if let Ok(mut value) = widget_state.0.lock() { *value = widget; }
+    if let Ok(mut value) = pinned_state.0.lock() { *value = pinned; }
+    let _ = window.emit("ui://widget-mode", widget);
+    if widget {
+        position_for_target_size(&window, width, height, true)?;
+    } else {
+        // Widget mode deliberately lives at the monitor's top-right. Once the full desktop
+        // size is restored, discard that compact position so the large window is not stranded
+        // partly off-screen on the right edge.
+        position_for_target_size(&window, width, height, false)?;
+    }
+    let _ = diagnostics::append(&app, "info", "window_mode_changed", Some(&format!("{mode};pinned={pinned}")));
+    Ok(())
+}
+
+/// Start the operating system's native window move operation. The HTML drag-region
+/// hint is unreliable on transparent macOS WebViews, so the visible grip invokes
+/// this command directly on primary-button press.
+#[tauri::command]
+fn start_window_dragging(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.start_dragging().map_err(|error| error.to_string())
+}
+
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 /// Whether closing the main window should hide it (background runtime) or quit the app.
 /// Defaults to `true` (spec: keep running in background after window close).
 struct HideOnClose(Mutex<bool>);
+struct WidgetModeState(Mutex<bool>);
+struct PinnedState(Mutex<bool>);
+
+/// v0.2 changed the bundle identifier to remove the misleading `.app` suffix.
+/// Copy the legacy app-data files once before the frontend opens SQLite.
+#[cfg(target_os = "macos")]
+fn migrate_legacy_app_data(app: &tauri::AppHandle) {
+    let Ok(home) = app.path().home_dir() else { return };
+    let legacy = home.join("Library/Application Support/com.aiusagemonitor.app");
+    let Ok(current) = app.path().app_data_dir() else { return };
+    if current.join("app.db").exists() || !legacy.join("app.db").exists() { return; }
+    if fs::create_dir_all(&current).is_err() { return; }
+    for name in ["app.db", "app.db-wal", "app.db-shm", "diagnostics.jsonl", "secrets.enc"] {
+        let source: PathBuf = legacy.join(name);
+        if source.exists() { let _ = fs::copy(source, current.join(name)); }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn migrate_legacy_app_data(_app: &tauri::AppHandle) {}
 
 #[tauri::command]
 fn set_hide_on_close(state: tauri::State<HideOnClose>, value: bool) {
@@ -59,12 +210,20 @@ fn update_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), Str
 }
 
 fn migrations() -> Vec<Migration> {
-    vec![Migration {
-        version: 1,
-        description: "init schema",
-        sql: include_str!("../migrations/0001_init.sql"),
-        kind: MigrationKind::Up,
-    }]
+    vec![
+        Migration {
+            version: 1,
+            description: "init schema",
+            sql: include_str!("../migrations/0001_init.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "deduplicate usage limits",
+            sql: include_str!("../migrations/0002_deduplicate_usage_limits.sql"),
+            kind: MigrationKind::Up,
+        },
+    ]
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -85,17 +244,26 @@ pub fn run() {
                 .build(),
         )
         .manage(HideOnClose(Mutex::new(true)))
+        .manage(WidgetModeState(Mutex::new(false)))
+        .manage(PinnedState(Mutex::new(false)))
         .invoke_handler(tauri::generate_handler![
             set_hide_on_close,
             quit_app,
             show_main_window,
             update_tray_tooltip,
+            set_window_mode,
+            start_window_dragging,
+            diagnostics::diagnostic_log,
+            diagnostics::diagnostic_export,
+            local_usage::read_codex_local_usage,
+            local_usage::read_claude_local_usage,
             secret::secret_set,
             secret::secret_get,
             secret::secret_delete,
             secret::secret_backend_available,
         ])
         .setup(|app| {
+            migrate_legacy_app_data(&app.handle());
             // --- Menu bar / system tray ---
             let open_i = MenuItem::with_id(app, "open", "Open Dashboard", true, None::<&str>)?;
             let check_i = MenuItem::with_id(app, "check_now", "Check Now", true, None::<&str>)?;
@@ -109,9 +277,10 @@ pub fn run() {
                 app,
                 &[&open_i, &check_i, &pause_i, &resume_i, &notif_i, &quit_i],
             )?;
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
 
             let _tray = TrayIconBuilder::with_id("main-tray")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
                 .icon_as_template(true)
                 .tooltip("AI Usage Monitor")
                 .menu(&menu)
@@ -119,6 +288,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => {
                         if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.emit("ui://request-widget-mode", false);
                             let _ = win.show();
                             let _ = win.unminimize();
                             let _ = win.set_focus();
@@ -134,8 +304,15 @@ pub fn run() {
                     if let TrayIconEvent::Click { .. } = event {
                         let app = tray.app_handle();
                         if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
+                            let visible_and_focused = win.is_visible().unwrap_or(false) && win.is_focused().unwrap_or(false);
+                            if visible_and_focused {
+                                let _ = win.hide();
+                            } else {
+                                let _ = app.emit("tray://action", "refresh_now".to_string());
+                                let _ = win.emit("ui://request-widget-mode", true);
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
                         }
                     }
                 })
@@ -157,6 +334,10 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            // Do not hide a widget merely because focus changed. macOS can emit a transient
+            // Focused(false) between show() and set_focus(), which made the visible widget
+            // disappear before its controls received the click. Tray click and Close remain
+            // the explicit ways to hide it; pinning controls only the always-on-top behavior.
         })
         .run(tauri::generate_context!())
         .expect("error while running AI Usage Monitor");

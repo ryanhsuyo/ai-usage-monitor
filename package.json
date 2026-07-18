@@ -1,6 +1,6 @@
 {
   "name": "ai-usage-monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first AI subscription usage monitor, forecaster, reset reminder and plan advisor.",
   "private": true,
   "type": "module",

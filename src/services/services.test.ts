@@ -75,7 +75,7 @@ async function saveChannel(
     displayName: "Desktop",
     enabled: true,
     eventPreferences: {
-      reset_expected: true,
+      quota_expiring: true, reset_expected: true,
       reset_confirmed: true,
       usage_warning: true,
       exhaustion_forecast: true,
@@ -133,7 +133,7 @@ describe("NotificationDispatcher (spec §9 / §20 cases 19-23)", () => {
   it("per-channel event preferences gate delivery", async () => {
     await saveChannel(repos, {
       eventPreferences: {
-        reset_expected: false,
+        quota_expiring: true, reset_expected: false,
         reset_confirmed: false, // this event type is off
         usage_warning: true,
         exhaustion_forecast: true,
@@ -201,7 +201,7 @@ describe("NotificationDispatcher (spec §9 / §20 cases 19-23)", () => {
       displayName: "d",
       enabled: true,
       eventPreferences: {
-        reset_expected: true,
+        quota_expiring: true, reset_expected: true,
         reset_confirmed: true,
         usage_warning: true,
         exhaustion_forecast: true,
@@ -300,6 +300,17 @@ describe("MonitorService (spec §8 flow 7)", () => {
     expect(await repos.snapshotRepo.listAll()).toHaveLength(1);
   });
 
+  it("filters notification event types independently for each limit", async () => {
+    await repos.settingsRepo.set(
+      SETTINGS_KEYS.limitEventPreferences,
+      JSON.stringify({ "lim-1": { reset_expected: false } })
+    );
+    await insertSnap("s1", "2026-07-15T00:00:00.000Z", 70, "2026-07-15T08:00:00.000Z");
+    const result = await monitor().runOnce("manual");
+    expect(result.checks[0]!.candidates.some((candidate) => candidate.eventType === "reset_expected")).toBe(false);
+    expect((await repos.resetRepo.listByLimit("lim-1"))[0]?.detectionMethod).toBe("expected_time_reached");
+  });
+
   it("usage drop → records a CONFIRMED reset and does not duplicate on the next run", async () => {
     await insertSnap("s1", "2026-07-15T06:00:00.000Z", 80, "2026-07-15T08:00:00.000Z");
     await insertSnap("s2", "2026-07-15T09:00:00.000Z", 2, "2026-07-22T08:00:00.000Z");
@@ -372,7 +383,7 @@ describe("Export / Import (spec §15 / §20 cases 24,25)", () => {
       secretRef: "notification-channel:discord:ch-1",
       config: { chatId: "12345" },
       eventPreferences: {
-        reset_expected: false,
+        quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
         usage_warning: true,
         exhaustion_forecast: true,

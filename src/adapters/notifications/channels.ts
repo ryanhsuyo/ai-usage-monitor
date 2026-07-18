@@ -33,6 +33,30 @@ function plainText(message: NotificationMessage): string {
   return `${SEVERITY_PREFIX[message.severity]} ${message.title}\n${message.body}`;
 }
 
+const DISCORD_COLORS: Record<NotificationMessage["severity"], number> = {
+  info: 0x2b9b8f,
+  warning: 0xd49a3a,
+  critical: 0xd6554d,
+};
+
+function discordPayload(message: NotificationMessage) {
+  const content = plainText(message);
+  return {
+    username: "AI Usage Monitor",
+    // Keep visible text alongside the richer embed. Some Discord clients can
+    // temporarily fail to render webhook embeds, otherwise leaving an empty shell.
+    content: content.slice(0, 2000),
+    embeds: [{
+      title: `${SEVERITY_PREFIX[message.severity]} ${message.title}`,
+      description: message.body.slice(0, 4096),
+      color: DISCORD_COLORS[message.severity],
+      footer: { text: "AI Usage Monitor · Local Monitor" },
+      timestamp: nowIso(),
+    }],
+    allowed_mentions: { parse: [] },
+  };
+}
+
 // ---------- Desktop ----------
 
 export function createDesktopAdapter(notifier: SystemNotifier): NotificationChannelAdapter {
@@ -61,8 +85,11 @@ export function createDiscordAdapter(http: HttpPosterLike): NotificationChannelA
       if (!runtime.secret) return { ok: false, message: "尚未設定 Webhook URL" };
       const check = checkWebhookUrl(runtime.secret);
       if (!check.ok) return check;
-      if (!/discord(app)?\.com$/i.test(check.url.hostname)) {
+      if (!/(^|\.)discord(?:app)?\.com$/i.test(check.url.hostname)) {
         return { ok: false, message: "這不是 Discord Webhook 網域" };
+      }
+      if (!/^\/api\/webhooks\/[^/]+\/[^/]+\/?$/i.test(check.url.pathname)) {
+        return { ok: false, message: "Discord Webhook URL 格式不完整" };
       }
       return { ok: true };
     },
@@ -70,9 +97,7 @@ export function createDiscordAdapter(http: HttpPosterLike): NotificationChannelA
       const valid = await this.validateConfiguration(config, runtime);
       if (!valid.ok) return failure("invalid_config", valid.message, [runtime.secret]);
       try {
-        const res = await http.postJson(runtime.secret as string, {
-          content: plainText(message),
-        });
+        const res = await http.postJson(runtime.secret as string, discordPayload(message));
         if (!res.ok) {
           return failure("discord_http_error", `Discord 回應 HTTP ${res.status}`, [runtime.secret]);
         }

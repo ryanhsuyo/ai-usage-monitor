@@ -3,7 +3,7 @@
 ## Secret Store
 
 - 介面：`src/ports::SecretStore`（set/get/delete）。
-- 主要實作：Rust `keyring` crate → macOS Keychain（service = `com.aiusagemonitor.app`）；Windows 版將對應 Credential Manager。
+- 主要實作：Rust `keyring` crate → macOS Keychain（service = `com.aiusagemonitor.app`，為保留升級前 Secret 而維持穩定，不等同 v0.2 bundle id）；Windows 版將對應 Credential Manager。
 - Fallback：Keychain probe 失敗時改用 App Data 內 AES-GCM 加密檔（`secret-store.enc.json` + `secret-store.key`）。**誠實聲明**：fallback 的金鑰與密文在同一磁碟，防的是誤匯出與隨手翻閱，強度不等同 OS Keychain。目前使用的 backend 顯示於 Data Sources 頁。
 - 測試用 `InMemorySecretStore`；fixture 一律使用假值，repo 內不得出現真實 Secret。
 

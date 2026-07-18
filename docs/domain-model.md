@@ -25,11 +25,18 @@ NotificationChannelConfig 1 ─── n NotificationDelivery n ─── 1 Notif
 | `UsageActivity` | 一次任務 | taskType、usageBefore/After/Delta、status ∈ in_progress/completed/cancelled |
 | `ResetEvent` | 重置事件 | detectionMethod ∈ confirmed_by_usage_drop / confirmed_by_reset_change / expected_time_reached / manual |
 | `ForecastResult` | 預測輸出 | estimatedExhaustionAt、willExhaustBeforeReset、burnRate6h/24h/cycle、confidence、warnings |
+| `UsageRunway` | 安全使用節奏 | safeDailyBudget、currentDailyPace、paceRatio、status；純本機計算 |
 | `RemainingTaskEstimate` | 剩餘次數 | minimum/maximum 範圍、sampleCount、confidence |
 | `PlanRecommendation` | 方案建議 | upgrade/keep/downgrade/insufficient_data + reasons |
 | `NotificationChannelConfig` | 通知管道 | type、secretRef（**只存指標**）、eventPreferences、quietHours、minInterval |
 | `NotificationEvent` | 通知事件 | eventKey（穩定去重鍵）、severity |
 | `NotificationDelivery` | 每管道傳送狀態 | status ∈ pending/sent/failed/skipped、attemptCount |
+
+每個 `UsageLimit` 的事件偏好以 `app_settings.notifications.limitEventPreferences` 保存；缺少設定時預設啟用，以維持既有資料相容。`notifyEnabled` 是該額度的總開關，事件偏好是其下的細項開關，管道的 `eventPreferences` 則是最後一道傳送端過濾。
+
+每個額度的「即將用完」門檻以 `app_settings.notifications.limitUsageWarningThresholds` 保存；未設定的額度回退到全域 `thresholds.usageWarningRemainingPercent`（預設 15%）。
+
+Claude snapshot 的 `note` 可包含 `claude-local-24h` metadata，僅保存近 24 小時按模型聚合的 Token 數字，不保存 prompt、response、專案名稱或 transcript 內容。UI 由純 Domain `estimateClaudeApiEquivalent` 計算 API 等值。
 
 ## 邊界鐵律
 

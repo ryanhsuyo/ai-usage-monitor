@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 import { computeForecast } from "@/domain/forecast";
 import { recommendPlan } from "@/domain/planRecommendation";
 import { estimateRemainingTasks } from "@/domain/remainingTasks";
+import { computeUsageRunway } from "@/domain/runway";
+import { snapshotCycleState } from "@/domain/snapshotFreshness";
 import type { TaskType } from "@/domain/types";
 import { getAppServices } from "../appServices";
 import {
@@ -52,10 +54,11 @@ export function DashboardPage() {
     [store.activities, limit?.id]
   );
   const latest = latestValid(snapshots);
+  const awaitingRefresh = snapshotCycleState(latest, new Date(now).toISOString()) === "awaiting_provider_refresh";
   const plan = store.plans.find((p) => p.id === limit?.planId);
 
   const forecast = useMemo(() => {
-    if (!limit) return undefined;
+    if (!limit || awaitingRefresh) return undefined;
     const manualOnly = snapshots.every((s) => s.source === "manual" || s.source === "json_import");
     const isDemo = snapshots.length > 0 && snapshots.filter((s) => s.valid).every((s) => s.source === "demo");
     return computeForecast({
@@ -67,10 +70,10 @@ export function DashboardPage() {
       manualOnly,
       sourceReliability: isDemo ? "demo" : manualOnly ? "manual" : "automated",
     });
-  }, [limit, snapshots, latest?.resetAt, resetEvents, now]);
+  }, [limit, snapshots, latest?.resetAt, resetEvents, now, awaitingRefresh]);
 
   const estimates = useMemo(() => {
-    if (!latest) return [];
+    if (!latest || awaitingRefresh) return [];
     return ESTIMATE_TYPES.map((taskType) =>
       estimateRemainingTasks({
         taskType,
@@ -78,12 +81,20 @@ export function DashboardPage() {
         currentUsedPercent: latest.usedPercent,
       })
     );
-  }, [activities, latest]);
+  }, [activities, latest, awaitingRefresh]);
 
   const recommendation = useMemo(() => {
     const cycles = buildCycleSummaries(snapshots, resetEvents);
     return recommendPlan({ cycles, totalDaysOfData: Math.round(daysOfData(snapshots)) });
   }, [snapshots, resetEvents]);
+
+  const runway = useMemo(() => computeUsageRunway({
+    forecast,
+    remainingPercent: latest?.remainingPercent ?? 0,
+    now: new Date(now).toISOString(),
+    resetAt: latest?.resetAt,
+  }), [forecast, latest?.remainingPercent, latest?.resetAt, now]);
+  const qualifiedEstimates = estimates.filter((estimate) => estimate.sampleCount >= 3);
 
   async function checkNow() {
     setChecking(true);
@@ -130,8 +141,8 @@ export function DashboardPage() {
     );
   }
 
-  const remaining = latest ? latest.remainingPercent : undefined;
-  const usedTone = latest
+  const remaining = latest && !awaitingRefresh ? latest.remainingPercent : undefined;
+  const usedTone = latest && !awaitingRefresh
     ? latest.usedPercent >= 90
       ? "danger"
       : latest.usedPercent >= 70
@@ -190,7 +201,7 @@ export function DashboardPage() {
             <h3>目前用量</h3>
             {latest && <Badge tone={usedTone === "ok" ? "ok" : usedTone}>{SOURCE_LABELS[latest.source] ?? latest.source}</Badge>}
           </div>
-          {latest ? (
+          {latest && !awaitingRefresh ? (
             <>
               <div className="usage-row" style={{ marginTop: 4 }}>
                 <strong>{pct(latest.usedPercent)}</strong>
@@ -210,6 +221,12 @@ export function DashboardPage() {
                 <span className="value">{formatRelative(latest.capturedAt, now)}</span>
               </div>
             </>
+          ) : awaitingRefresh ? (
+            <div className="provider-refresh-state">
+              <strong>新週期等待官方資料</strong>
+              <p>官方重置時間已到，上一週期的百分比已停止顯示。App 會自動重試，不需要用舊數字假裝目前用量。</p>
+              <span>上一筆資料更新於 {latest ? formatRelative(latest.capturedAt, now) : "未知"}</span>
+            </div>
           ) : (
             <p className="muted" style={{ padding: "18px 0" }}>
               尚無有效快照。點右上角「＋ 新增快照」輸入目前用量。
@@ -218,9 +235,9 @@ export function DashboardPage() {
         </section>
 
         {/* ---------- Forecast ---------- */}
-        <section className="card" aria-label="用量預測">
+        <section className="card" aria-label="用量續航">
           <div className="card-title">
-            <h3>用量預測</h3>
+            <h3>用量續航</h3>
             {forecast && <ConfidenceBadge value={forecast.confidence} />}
           </div>
           {forecast && latest ? (
@@ -264,32 +281,26 @@ export function DashboardPage() {
           )}
         </section>
 
-        {/* ---------- Remaining tasks ---------- */}
-        <section className="card" aria-label="剩餘任務估算">
+        {/* ---------- Usage pace ---------- */}
+        <section className="card" aria-label="使用節奏">
           <div className="card-title">
-            <h3>相似任務還能做幾次</h3>
+            <h3>使用節奏</h3>
+            {runway.status === "slow_down" && <Badge tone="danger">建議放慢</Badge>}
+            {runway.status === "watch" && <Badge tone="warn">接近安全速度</Badge>}
+            {runway.status === "comfortable" && <Badge tone="ok">節奏充裕</Badge>}
           </div>
-          {latest ? (
-            estimates.map((est) => (
-              <div className="metric-row" key={est.taskType}>
-                <span className="label">{TASK_TYPE_LABELS[est.taskType]}</span>
-                <span className="value">
-                  {est.sampleCount >= 3 ? (
-                    `約 ${est.minimum} ～ ${est.maximum} 次`
-                  ) : (
-                    <span className="faint">資料不足（{est.sampleCount}/3 筆）</span>
-                  )}
-                </span>
-              </div>
-            ))
+          {runway.safeDailyBudget !== undefined ? (
+            <>
+              <div className="metric-row"><span className="label">要撐到重置</span><span className="value">每天預估 ≤ {pct(runway.safeDailyBudget)}</span></div>
+              <div className="metric-row"><span className="label">目前使用速度</span><span className="value">約 {pct(runway.currentDailyPace)}／天</span></div>
+              <div className="metric-row"><span className="label">相較安全速度</span><span className="value">{runway.paceDifferencePercent === undefined ? "資料不足" : runway.paceDifferencePercent > 0 ? `快約 ${Math.round(runway.paceDifferencePercent)}%` : `慢約 ${Math.abs(Math.round(runway.paceDifferencePercent))}%`}</span></div>
+              <p className="faint" style={{ marginTop: 10 }}>依目前剩餘額度、重置時間與近期消耗速度進行本機預估，不會使用 AI 額度。</p>
+            </>
           ) : (
             <p className="muted" style={{ padding: "18px 0" }}>
-              先新增快照與活動紀錄，才能估算剩餘任務次數。
+              需要重置時間與至少兩筆有效快照，才能計算安全使用節奏。
             </p>
           )}
-          <p className="faint" style={{ marginTop: 10 }}>
-            依最近同類型活動的用量差異估算，僅供參考。至少需要 3 筆有效的同類活動紀錄。
-          </p>
         </section>
 
         {/* ---------- Plan recommendation ---------- */}
@@ -327,6 +338,15 @@ export function DashboardPage() {
           <ConfidenceReasons reasons={recommendation.reasons} />
         </section>
       </div>
+
+      {qualifiedEstimates.length > 0 && <section className="card" aria-label="進階相似任務估算" style={{ marginBottom: 15 }}>
+        <div className="card-title"><h3>進階：相似任務估算</h3><Badge tone="neutral">依活動紀錄</Badge></div>
+        {qualifiedEstimates.map((estimate) => <div className="metric-row" key={estimate.taskType}>
+          <span className="label">{TASK_TYPE_LABELS[estimate.taskType]} · {estimate.sampleCount} 筆樣本</span>
+          <span className="value">預估約 {estimate.minimum}～{estimate.maximum} 次</span>
+        </div>)}
+        <p className="faint" style={{ marginTop: 10 }}>僅在同類活動至少 3 筆時顯示，範圍為統計預估，不代表官方可用次數。</p>
+      </section>}
 
       {showSnapshotForm && limit && (
         <SnapshotFormModal limit={limit} onClose={() => setShowSnapshotForm(false)} />

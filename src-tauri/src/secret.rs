@@ -8,6 +8,8 @@
 
 use keyring::Entry;
 
+// Kept stable across the v0.2 bundle-id migration so existing Discord/Webhook
+// credentials remain available without copying or exposing their values.
 const SERVICE: &str = "com.aiusagemonitor.app";
 
 fn entry(key: &str) -> Result<Entry, String> {

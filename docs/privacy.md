@@ -4,13 +4,14 @@
 
 - 使用資料（快照、活動、方案、設定）**預設不離開本機**。
 - 沒有雲端後端、沒有 Supabase、沒有帳號系統、沒有分析遙測、沒有自動上傳。
-- SQLite 資料檔存於 App Data Directory（macOS：`~/Library/Application Support/com.aiusagemonitor.app/app.db`）。
+- SQLite 資料檔存於 App Data Directory（macOS v0.2 起：`~/Library/Application Support/com.aiusagemonitor.desktop/app.db`；首次啟動會從舊 `com.aiusagemonitor.app` 目錄複製既有資料）。
 
 ## 帳號與密碼
 
 - 本產品**不需要**你的 Claude / OpenAI / Google 帳號密碼，也沒有任何輸入密碼的地方。
 - 不保存任何明文密碼。
 - Browser Automation（讀取 usage 頁面）**預設未啟用且尚未實作**；未來實作時將使用你既有的瀏覽器登入狀態，仍不會索取帳密。
+- Claude 自動同步只執行本機已安裝的官方非互動 `/usage` 指令，由 Claude Code 自己使用既有登入狀態更新快取；本 App 不讀取、不接收也不保存 Claude OAuth Token。該控制指令經實機驗證不建立模型 turn、Token 用量或 API 成本。
 
 ## Secret 儲存
 
@@ -26,7 +27,7 @@
 ## 外部通知的資料流
 
 - 只有**你主動啟用**的通知管道才會對外送資料。
-- 送出的內容僅為通知文字（例如「Claude 額度已確認重置，目前已使用 2%」），會傳到你設定的 Discord / Slack / Telegram / 自訂 Webhook 對應的第三方服務。
+- 送出的內容僅為通知文字（例如「Claude 額度可能臨時／提前重置，目前已使用 2%」），會傳到你設定的 Discord / Slack / Telegram / 自訂 Webhook 對應的第三方服務。
 - 不啟用外部通知時，資料完全不外傳。桌面通知只經過作業系統。
 
 ## 未來
