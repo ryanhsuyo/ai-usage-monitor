@@ -6,7 +6,7 @@ button { cursor: pointer; }
 .app { min-height: 100%; display: grid; grid-template-columns: 222px 1fr; }
 .widget-summary { display: none; }
 .strip-summary { display: none; }
-.window-drag-handle { position: fixed; top: 0; left: 0; right: 132px; height: 28px; z-index: 70; }
+.window-drag-handle { position: fixed; top: 0; left: 0; right: 174px; height: 28px; z-index: 70; }
 .window-controls { position: fixed; top: 5px; right: 14px; z-index: 80; display: flex; gap: 5px; padding: 4px; border-radius: 10px; background: #eef1f3c9; backdrop-filter: blur(8px); box-shadow: 0 3px 12px #1820281c; }
 .window-controls, .window-controls button { -webkit-app-region: no-drag; }
 .window-controls button { position: relative; z-index: 81; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d9dde1; background: #ffffffdf; color: #727a82; border-radius: 7px; padding: 5px 8px; font-size: 10px; box-shadow: 0 2px 8px #18202814; }
@@ -44,7 +44,7 @@ html.strip-mode.strip-size-small, html.strip-mode.strip-size-small body, html.st
 html.strip-mode.strip-size-large, html.strip-mode.strip-size-large body, html.strip-mode.strip-size-large #root { min-width: 290px; min-height: 120px; }
 .widget-mode .app { display: block; }
 .widget-mode .window-controls { top: 28px; right: 9px; padding: 2px; background: transparent; box-shadow: none; }
-.widget-mode .window-drag-handle { left: 9px; right: 108px; height: 30px; cursor: grab; }
+.widget-mode .window-drag-handle { left: 9px; right: 136px; height: 30px; cursor: grab; }
 .widget-mode .window-drag-handle:active { cursor: grabbing; }
 .widget-mode .window-drag-handle::after { content: "⠿  拖曳"; position: absolute; top: 8px; left: 4px; color: #66727a; font-size: 8px; font-weight: 650; letter-spacing: .4px; opacity: .72; }
 .widget-mode .window-controls button { padding: 4px 6px; }

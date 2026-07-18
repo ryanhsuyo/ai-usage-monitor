@@ -149,6 +149,13 @@ fn start_window_dragging(window: tauri::WebviewWindow) -> Result<(), String> {
     window.start_dragging().map_err(|error| error.to_string())
 }
 
+/// Minimize into the operating system's app icon without changing the current
+/// full/widget/strip mode, so restoring returns to the same presentation.
+#[tauri::command]
+fn minimize_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 /// Whether closing the main window should hide it (background runtime) or quit the app.
@@ -253,6 +260,7 @@ pub fn run() {
             update_tray_tooltip,
             set_window_mode,
             start_window_dragging,
+            minimize_window,
             diagnostics::diagnostic_log,
             diagnostics::diagnostic_export,
             local_usage::read_codex_local_usage,
