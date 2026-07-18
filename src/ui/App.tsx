@@ -223,6 +223,14 @@ function WindowControls() {
   }
 
   function toggleStrip() {
+    if (!widgetMode) {
+      setWidgetMode(true);
+      setStripMode(true);
+      localStorage.setItem(WIDGET_MODE_KEY, "true");
+      localStorage.setItem(STRIP_MODE_KEY, "true");
+      void applyWindow(true, alwaysOnTop, true);
+      return;
+    }
     const next = !stripMode;
     setStripMode(next);
     localStorage.setItem(STRIP_MODE_KEY, String(next));
@@ -247,7 +255,7 @@ function WindowControls() {
   return (
     <><div className="window-drag-handle" data-tauri-drag-region aria-hidden onMouseDown={startDragging} />
     <div className="window-controls" aria-label="視窗控制">
-      {widgetMode && <button type="button" className={stripMode ? "on" : ""} onClick={toggleStrip} title={stripMode ? "展開小工具" : "縮成極簡條"} aria-pressed={stripMode}>—<span>極簡</span></button>}
+      <button type="button" className={stripMode ? "on" : ""} onClick={toggleStrip} title={stripMode ? "展開成小工具" : "縮到最小極簡條"} aria-pressed={stripMode}>—<span>{stripMode ? "小工具" : "極簡"}</span></button>
       <button type="button" className={alwaysOnTop ? "on" : ""} onClick={togglePinned} title={alwaysOnTop ? "取消置頂" : "永遠置頂"} aria-pressed={alwaysOnTop}>
         {alwaysOnTop ? "●" : "○"}<span>置頂</span>
       </button>

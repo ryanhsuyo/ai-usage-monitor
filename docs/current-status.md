@@ -75,6 +75,7 @@
 - 通知頁可選擇五種情境並對指定管道傳送預覽：即將用完、Reset 票券到期、提前重置、預估耗盡、同步失敗；連線測試與情境預覽分開
 - 資料來源頁逐來源顯示最近嘗試、最近成功資料年齡、下次預定同步與最近錯誤；立即同步完成後回報實際新增讀值數或資料已最新
 - 發布版本升至 0.2.0，bundle identifier 改為 `com.aiusagemonitor.desktop`；macOS 首次啟動自動複製舊 `com.aiusagemonitor.app` App Data，Keychain service 維持舊值以保留通知 Secret
+- 視窗控制支援完整視窗一鍵縮到最小極簡條；極簡狀態按同一顆按鈕會展開成 240×300 小工具，箭頭按鈕仍可直接恢復完整視窗
 - 文件全套（README、AGENTS、docs/*）
 
 ## 未完成（Roadmap）

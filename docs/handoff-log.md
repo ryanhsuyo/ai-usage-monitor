@@ -1,5 +1,10 @@
 # Handoff Log
 
+## 2026-07-19 — 完整／極簡／小工具三段切換
+
+- 極簡按鈕不再只在小工具模式出現；完整視窗可一鍵進入 strip，並同步保存 widget + strip 狀態。
+- strip 狀態按同一顆按鈕切回 240×300 widget；右側箭頭仍負責直接恢復完整視窗，三種尺寸路徑明確。
+
 ## 2026-07-19 — v0.2 發布識別與資料遷移
 
 - 版本升為 0.2.0；bundle identifier 從不建議的 `com.aiusagemonitor.app` 改為 `com.aiusagemonitor.desktop`。
