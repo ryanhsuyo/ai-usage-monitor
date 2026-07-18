@@ -11,6 +11,7 @@ button { cursor: pointer; }
 .window-controls, .window-controls button { -webkit-app-region: no-drag; }
 .window-controls button { position: relative; z-index: 81; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d9dde1; background: #ffffffdf; color: #727a82; border-radius: 7px; padding: 5px 8px; font-size: 10px; box-shadow: 0 2px 8px #18202814; }
 .window-controls button:hover, .window-controls button.on { color: #216f64; border-color: #86b8b0; background: #e9f5f2; }
+.window-control-icon { display: block; width: 15px; height: 15px; flex: none; }
 aside { background: #1d2329; color: #d9dde1; padding: 26px 16px 18px; display: flex; flex-direction: column; }
 .brand { display: flex; gap: 11px; align-items: center; padding: 0 8px 28px; font-weight: 700; letter-spacing: -.2px; }
 .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: white; font-size: 20px; background: linear-gradient(145deg,#26bda8,#5875e8); }
