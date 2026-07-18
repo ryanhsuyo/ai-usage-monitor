@@ -77,6 +77,7 @@
 - 發布版本升至 0.2.0，bundle identifier 改為 `com.aiusagemonitor.desktop`；macOS 首次啟動自動複製舊 `com.aiusagemonitor.app` App Data，Keychain service 維持舊值以保留通知 Secret
 - 視窗控制支援完整視窗一鍵縮到最小極簡條；極簡狀態按同一顆按鈕會展開成 240×300 小工具，箭頭按鈕仍可直接恢復完整視窗
 - 視窗控制另提供 macOS 標準「收進 Dock（⌘M）」；最小化不改變完整／小工具／極簡模式，從 Dock 恢復時回到原本狀態
+- macOS 無邊框 compact 視窗在最小化前會明確恢復原生 miniaturizable 能力；極簡／小工具切換圖示改為 `▬`／`▦`，避免與 Dock 收起混淆
 - 文件全套（README、AGENTS、docs/*）
 
 ## 未完成（Roadmap）

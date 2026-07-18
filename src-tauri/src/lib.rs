@@ -153,6 +153,9 @@ fn start_window_dragging(window: tauri::WebviewWindow) -> Result<(), String> {
 /// full/widget/strip mode, so restoring returns to the same presentation.
 #[tauri::command]
 fn minimize_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    // Borderless compact windows are not always created with the native
+    // miniaturizable style on macOS. Explicitly restore it before minimizing.
+    window.set_minimizable(true).map_err(|error| error.to_string())?;
     window.minimize().map_err(|error| error.to_string())
 }
 

@@ -262,7 +262,7 @@ function WindowControls() {
     <><div className="window-drag-handle" data-tauri-drag-region aria-hidden onMouseDown={startDragging} />
     <div className="window-controls" aria-label="視窗控制">
       <button type="button" onClick={minimizeToDock} title="收進 Dock（⌘M）" aria-label="收進 Dock">▁<span>收起</span></button>
-      <button type="button" className={stripMode ? "on" : ""} onClick={toggleStrip} title={stripMode ? "展開成小工具" : "縮到最小極簡條"} aria-pressed={stripMode}>—<span>{stripMode ? "小工具" : "極簡"}</span></button>
+      <button type="button" className={stripMode ? "on" : ""} onClick={toggleStrip} title={stripMode ? "展開成小工具卡片" : "縮成極簡橫條"} aria-pressed={stripMode}>{stripMode ? "▦" : "▬"}<span>{stripMode ? "小工具" : "極簡"}</span></button>
       <button type="button" className={alwaysOnTop ? "on" : ""} onClick={togglePinned} title={alwaysOnTop ? "取消置頂" : "永遠置頂"} aria-pressed={alwaysOnTop}>
         {alwaysOnTop ? "●" : "○"}<span>置頂</span>
       </button>
