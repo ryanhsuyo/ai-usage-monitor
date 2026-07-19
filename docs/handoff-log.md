@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — 修正 Claude 重置後額度不刷新
+
+- 實機確認 Claude Code 2.1.214 的 `claude -p /usage` 只回傳 0-token session summary，不會更新 `cachedUsageUtilization`；舊的自動刷新是假成功。
+- 官方快取曾停在 Session 100% 且 resetAt 已過；真正互動 `/usage` 後立即更新為 Session 0%，既有檔案監聽也成功寫入 SQLite。
+- macOS 改在快取超過 4 分鐘時，於 Claude 已信任的專案目錄以隱藏 pseudo-terminal 執行真正 `/usage`，隨後自動退出；不讀 OAuth 憑證、不保存輸出、不消耗模型 Token。
+
 ## 2026-07-19 — 採用通用視窗圖示語彙
 
 - 最小化改用 macOS／Windows 都熟悉的單一橫線 Minus；極簡使用 Panel 收合／展開，其他使用 Pin、Picture-in-Picture、Maximize。

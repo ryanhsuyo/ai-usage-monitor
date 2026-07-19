@@ -67,6 +67,7 @@
 - 極簡小工具在四條用量下方固定顯示 Reset 票券摘要，例如 `Reset 3 張｜到期 7/27、8/1、8/13`；不需 hover。三種尺寸各有對應字級，日期過長時只在該行省略，不影響用量列
 - Discord Webhook 串接補齊：嚴格限制官方網域與完整 webhook path、以 product Embed 顯示通知並停用 mentions；新增「儲存並測試」一次完成 Keychain 保存與真實發送，測試失敗時保留表單與已脫敏錯誤
 - Claude 用量同步不再等待使用者手動 `/status`／`/usage`：Rust Adapter 在收集前執行官方非互動 `claude -p /usage --no-session-persistence --tools ''`，讓 Claude 自己更新 OAuth usage 快取。實機驗證 0 turns、0 model tokens、0 API cost；4 分鐘節流避免檔案事件與 5 分鐘排程重複觸發
+- 修正新版 Claude Code 將 `claude -p /usage` 當普通 prompt、實際不更新快取：macOS Adapter 在快取超過 4 分鐘時，改於已信任專案的隱藏 pseudo-terminal 真正執行 `/usage`，6 秒後自動退出；仍為 0 turns／0 tokens／0 cost，且不讀 OAuth Token或保存終端內容
 - Discord 通知同時送出可見純文字與詳細 Embed；即使 Discord 客戶端暫時未渲染 Embed，也不會只留下沒有內容的 Webhook 訊息
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次

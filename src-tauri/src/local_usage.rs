@@ -97,22 +97,52 @@ fn timestamp_unix(value: &str) -> Option<i64> {
 
 static CLAUDE_USAGE_REFRESH: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
-fn refresh_claude_usage_cache(home: &str) {
+fn refresh_claude_usage_cache(home: &str, root: &Value) {
     let refresh = CLAUDE_USAGE_REFRESH.get_or_init(|| Mutex::new(None));
     let Ok(mut last_attempt) = refresh.lock() else { return };
     if last_attempt.as_ref().is_some_and(|at| at.elapsed() < Duration::from_secs(4 * 60)) { return; }
+
+    let fetched_ms = root.pointer("/cachedUsageUtilization/fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
+    let now_ms = OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
+    if fetched_ms > 0 && now_ms.saturating_sub(fetched_ms as i128) < 4 * 60 * 1_000 { return; }
+
+    let trusted_dir = root.get("projects").and_then(Value::as_object).and_then(|projects| {
+        projects.iter().find_map(|(path, settings)| {
+            (settings.get("hasTrustDialogAccepted").and_then(Value::as_bool) == Some(true)
+                && Path::new(path).is_dir()).then(|| PathBuf::from(path))
+        })
+    });
+    let Some(trusted_dir) = trusted_dir else { return };
     *last_attempt = Some(Instant::now());
     drop(last_attempt);
 
     let local = Path::new(home).join(".local/bin/claude");
     let binary = if local.exists() { local } else { PathBuf::from("claude") };
-    // `/usage` is a built-in non-interactive control command. Claude reports zero turns,
-    // zero model tokens and zero API cost; it only refreshes the official local usage cache.
-    let _ = Command::new(binary)
-        .args(["-p", "/usage", "--output-format", "json", "--no-session-persistence", "--tools", ""])
-        .current_dir(home)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .status();
+
+    // `claude -p /usage` is treated as an ordinary zero-token prompt by recent Claude Code
+    // versions and does not refresh cachedUsageUtilization. On macOS, run the official slash
+    // command in a hidden pseudo-terminal instead. It reports zero turns/tokens/cost; no output
+    // or credential is captured. The file watcher ingests the refreshed cache asynchronously.
+    #[cfg(target_os = "macos")]
+    std::thread::spawn(move || {
+        use std::io::Write;
+        let Ok(mut child) = Command::new("/usr/bin/script")
+            .arg("-q").arg("/dev/null").arg(binary)
+            .current_dir(trusted_dir)
+            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null())
+            .spawn() else { return };
+        let Some(mut stdin) = child.stdin.take() else { let _ = child.kill(); return };
+        std::thread::sleep(Duration::from_secs(1));
+        let _ = stdin.write_all(b"/usage\r");
+        let _ = stdin.flush();
+        std::thread::sleep(Duration::from_secs(4));
+        let _ = stdin.write_all(b"\x1b");
+        let _ = stdin.flush();
+        std::thread::sleep(Duration::from_secs(1));
+        let _ = stdin.write_all(b"\x03\x03");
+        drop(stdin);
+        let _ = child.wait();
+    });
 }
 
 fn session_usage(path: &Path, cycle_start: i64) -> Option<(String, String, ModelUsage)> {
@@ -254,10 +284,10 @@ fn claude_recent_usage(home: &str, since_unix: i64) -> (Vec<ModelUsage>, usize, 
 #[tauri::command]
 pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
-    refresh_claude_usage_cache(&home);
     let body = fs::read_to_string(Path::new(&home).join(".claude.json"))
         .map_err(|_| "找不到 Claude Code 本機設定".to_string())?;
     let root: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    refresh_claude_usage_cache(&home, &root);
     let cached = root.get("cachedUsageUtilization")
         .ok_or_else(|| "Claude Code 尚未快取 /usage 資料；請先執行一次 /usage".to_string())?;
     let fetched_ms = cached.get("fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
