@@ -18,6 +18,8 @@ export type LocalUsageReading = {
   resetAvailableCount?: number;
   resetCredits?: Array<{ title: string; expiresAtUnix?: number }>;
   resetCreditsAvailable?: boolean;
+  quotaStale?: boolean;
+  quotaCapturedAt?: string;
 };
 
 export function buildCodexMetadata(reading: LocalUsageReading) {
@@ -26,7 +28,7 @@ export function buildCodexMetadata(reading: LocalUsageReading) {
 }
 
 export function buildClaudeMetadata(reading: LocalUsageReading) {
-  return { kind: "claude-local-24h", period: "rolling-24-hours", sessionCount: reading.sessionCount, models: reading.modelUsage, inputTokens: reading.inputTokens, cachedInputTokens: reading.cachedInputTokens, outputTokens: reading.outputTokens };
+  return { kind: "claude-local-24h", period: "rolling-24-hours", sessionCount: reading.sessionCount, models: reading.modelUsage, inputTokens: reading.inputTokens, cachedInputTokens: reading.cachedInputTokens, outputTokens: reading.outputTokens, quotaStale: reading.quotaStale ?? false, quotaCapturedAt: reading.quotaCapturedAt ?? reading.capturedAt };
 }
 
 let collectorInFlight: Promise<number> | undefined;
@@ -50,8 +52,11 @@ export function createLocalUsageCollector(
       try {
         const result = await invoke<LocalUsageReading[]>(command);
         const sourceCapturedAt = result.map((reading) => reading.capturedAt).filter(Boolean).sort().at(-1) ?? ranAt;
-        if (!previous || previous.lastSuccessAt !== sourceCapturedAt || previous.lastError) {
-          await dataSourceRepo.save({ id: `${providerId}-local`, providerId, adapterId: `${providerId}-local`, displayName, enabled: true, supportsAutomaticPolling: true, reliability: "automated", lastRunAt: ranAt, lastSuccessAt: sourceCapturedAt, updatedAt: ranAt });
+        const staleError = providerId === "claude" && result.some((reading) => reading.quotaStale)
+          ? "Claude 有新活動，但官方 /usage 快取尚未更新；目前不顯示舊額度百分比"
+          : undefined;
+        if (!previous || previous.lastSuccessAt !== sourceCapturedAt || previous.lastError !== staleError) {
+          await dataSourceRepo.save({ id: `${providerId}-local`, providerId, adapterId: `${providerId}-local`, displayName, enabled: true, supportsAutomaticPolling: true, reliability: "automated", lastRunAt: ranAt, lastSuccessAt: sourceCapturedAt, lastError: staleError, updatedAt: ranAt });
           await diagnostics.log("info", "local_usage_source_updated", `${providerId};readings=${result.length}`).catch(() => undefined);
         }
         return result;
@@ -131,11 +136,14 @@ export function createLocalUsageCollector(
       // A collector upgrade can enrich an otherwise unchanged provider reading. Give that
       // one-time metadata upgrade a deterministic newer key so latestValidByLimit selects it;
       // subsequent polls are deduplicated by content above.
-      const requestedCapturedAt = reading.capturedAt || now;
+      // A stale Claude quota is an observation made by this collection run, even
+      // though the embedded official quota timestamp is older. Store it as the
+      // latest snapshot so an older, misleading percentage cannot remain visible.
+      const requestedCapturedAt = reading.quotaStale ? now : (reading.capturedAt || now);
       const capturedAt = latest?.capturedAt === requestedCapturedAt
         ? new Date(Date.parse(requestedCapturedAt) + 1).toISOString()
         : requestedCapturedAt;
-      await snapshotRepo.insert({ id: newId("snap"), providerId: reading.providerId, accountId: account.id, limitId: limit.id, usedPercent: reading.usedPercent, remainingPercent: 100 - reading.usedPercent, resetAt, capturedAt, source: "cli", valid: true, confidence: 1, note });
+      await snapshotRepo.insert({ id: newId("snap"), providerId: reading.providerId, accountId: account.id, limitId: limit.id, usedPercent: reading.usedPercent, remainingPercent: 100 - reading.usedPercent, resetAt, capturedAt, source: "cli", valid: true, confidence: reading.quotaStale ? 0 : 1, note });
       inserted++;
     }
       return inserted;

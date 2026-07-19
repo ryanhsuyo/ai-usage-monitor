@@ -39,6 +39,8 @@ pub struct LocalUsageReading {
     reset_available_count: u64,
     reset_credits: Vec<ResetCredit>,
     reset_credits_available: bool,
+    quota_stale: bool,
+    quota_captured_at: String,
 }
 
 fn codex_binary() -> String {
@@ -252,11 +254,12 @@ pub fn read_codex_local_usage() -> Result<Vec<LocalUsageReading>, String> {
         model_usage.sort_by(|a, b| b.input_tokens.cmp(&a.input_tokens));
         Ok(LocalUsageReading {
             provider_id: "codex".into(), limit_key: format!("codex-{key}-{window}"), limit_name: name,
-            used_percent: used, window_minutes: window, reset_at_unix: reset, captured_at: captured,
+            used_percent: used, window_minutes: window, reset_at_unix: reset, captured_at: captured.clone(),
             session_count, input_tokens: model_usage.iter().map(|u| u.input_tokens).sum(),
             cached_input_tokens: model_usage.iter().map(|u| u.cached_input_tokens).sum(),
             output_tokens: model_usage.iter().map(|u| u.output_tokens).sum(), model_usage,
             reset_available_count, reset_credits: reset_credits.clone(), reset_credits_available,
+            quota_stale: false, quota_captured_at: captured.clone(),
         })
     }).collect()
 }
@@ -316,6 +319,8 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     let since = OffsetDateTime::now_utc().unix_timestamp() - 24 * 60 * 60;
     let (model_usage, session_count, transcript_captured_at) = claude_recent_usage(&home, since);
     refresh_claude_usage_cache(&home, &root, transcript_captured_at.as_deref());
+    let quota_stale = transcript_captured_at.as_deref().and_then(timestamp_unix)
+        .is_some_and(|activity| activity * 1_000 > fetched_ms + 60_000);
     // Quota freshness must remain the official /usage fetchedAt. Transcript activity only
     // enriches token/cost metadata; promoting its timestamp would make an old percentage look
     // freshly confirmed even when Claude's usage cache did not update.
@@ -344,6 +349,7 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
             reset_at_unix: reset, captured_at: captured_at.clone(), session_count,
             model_usage: model_usage.clone(), input_tokens, cached_input_tokens, output_tokens,
             reset_available_count: 0, reset_credits: Vec::new(), reset_credits_available: false,
+            quota_stale, quota_captured_at: captured_at.clone(),
         });
     }
     if readings.is_empty() { return Err("Claude Code /usage 快取沒有可用額度".into()); }

@@ -47,6 +47,17 @@ describe("Claude local usage metadata", () => {
     expect(meta.kind).toBe("claude-local-24h");
     expect(meta.models[0]?.model).toBe("claude-fable-5");
   });
+
+  it("preserves official quota freshness separately from transcript activity", () => {
+    const meta = buildClaudeMetadata(reading({
+      providerId: "claude",
+      capturedAt: "2026-07-19T03:46:02Z",
+      quotaStale: true,
+      quotaCapturedAt: "2026-07-19T03:46:02Z",
+    }));
+    expect(meta.quotaStale).toBe(true);
+    expect(meta.quotaCapturedAt).toBe("2026-07-19T03:46:02Z");
+  });
 });
 
 describe("compact widget settings", () => {

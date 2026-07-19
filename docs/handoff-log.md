@@ -1,5 +1,12 @@
 # Handoff Log
 
+## 2026-07-19 — Claude 舊額度不再顯示成即時數字
+
+- 實機確認 Claude Code 2.1.215 的 `/api/oauth/usage` 在隱藏 PTY 超過 30 秒仍未完成，且 `cachedUsageUtilization.fetchedAtMs` 停在 11:46；背景刷新不可視為成功。
+- Rust reading 新增 quotaStale／quotaCapturedAt；transcript 活動比官方快取新超過 1 分鐘即標記，不修改或讀取 OAuth 憑證。
+- 極簡列與一般小工具在 stale 時隱藏舊百分比，改顯示「等待官方更新」；資料來源頁同步顯示原因，Token／成本 metadata 繼續可用。
+- stale 狀態以本次收集時間、confidence 0 寫入，讓它可靠取代過去錯誤較新的 0% 快照，但不參與耗盡預測；官方快取更新後再恢復正常百分比。
+
 ## 2026-07-19 — 區分 Claude 訂閱額度與 API 活動
 
 - 實機狀態：官方快取 11:46 回傳 Session 0%，12:18 仍有 transcript 活動，而 Claude Code 2.1.215 啟動畫面顯示 `API Usage Billing`；兩者可同時成立。
