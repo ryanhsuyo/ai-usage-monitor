@@ -43,6 +43,32 @@ pub fn secret_delete(key: String) -> Result<(), String> {
     }
 }
 
+/// Whether this binary carries only an ad-hoc code signature (macOS). Keychain item ACLs are
+/// bound to the signing identity, and an ad-hoc identity changes on every rebuild — so items
+/// written by a previous build trigger the OS permission dialog on every launch, and
+/// "Always Allow" only survives until the next build. The frontend treats an ad-hoc-signed app
+/// as "keychain unreliable" and prefers the encrypted-file store instead.
+#[tauri::command]
+pub fn app_signature_is_adhoc() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let Ok(exe) = std::env::current_exe() else { return false };
+        let Ok(output) = std::process::Command::new("/usr/bin/codesign")
+            .arg("-dv")
+            .arg(&exe)
+            .output()
+        else {
+            return false;
+        };
+        // codesign prints details on stderr; "Signature=adhoc" marks an identity-less signature.
+        String::from_utf8_lossy(&output.stderr).contains("Signature=adhoc")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 /// Probe whether the OS keychain is usable in this environment. The frontend uses the result to
 /// decide between the keychain-backed store and the encrypted-file fallback.
 #[tauri::command]

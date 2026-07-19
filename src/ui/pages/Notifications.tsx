@@ -504,14 +504,14 @@ function ChannelFormModal(props: { channel?: NotificationChannelConfig; initialT
             placeholder={isNew ? secretMeta.placeholder : "留空表示沿用既有設定"}
             autoComplete="off"
           />
-          <span className="hint">僅存於系統安全儲存（Keychain / Credential Manager）。</span>
+          <span className="hint">僅存於系統安全儲存（Keychain / Credential Manager）或本機加密檔，不進資料庫。</span>
         </label>
       )}
       {type === "discord" && (
         <div className="discord-guide">
           <strong>如何取得 Discord Webhook URL</strong>
           <ol><li>在 Discord 對目標頻道按「編輯頻道」</li><li>選擇「整合」→「Webhook」→「新增 Webhook」</li><li>複製 Webhook URL，貼到上方欄位</li><li>儲存後按「測試」，確認頻道收到訊息</li></ol>
-          <span>網址只會存入系統 Keychain，不會寫入資料庫或診斷檔。</span>
+          <span>網址只會存入系統 Keychain 或本機加密檔（見資料來源頁），不會寫入資料庫或診斷檔。</span>
         </div>
       )}
       {type === "telegram" && (

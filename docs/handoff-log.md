@@ -1,5 +1,22 @@
 # Handoff Log
 
+## 2026-07-19 — 未簽章 build 不再反覆觸發 Keychain 授權彈窗
+
+- 使用者回報：啟動時 macOS 反覆跳出「ai-usage-monitor wants to use your confidential information stored in "com.aiusagemonitor.app"」。
+- 根因：app 無簽章憑證（`security find-identity` 0 valid），Tauri 產物為 linker ad-hoc 簽名且 identifier 含每次 build 變動的 hash；Keychain ACL 綁定簽名身分，因此每次重建都被視為不同 app，讀舊 build 建立的 Discord webhook secret 一定重新授權，「永遠允許」也只對單一 build 有效。
+- 解法：新增 `app_signature_is_adhoc` command（`codesign -dv` 認 `Signature=adhoc`；已用實際產物與 Apple 簽名的系統 binary 驗證判定）。ad-hoc build 的 `createBestSecretStore` 視 Keychain 為不可靠，改用既有 AES-GCM 加密檔備援；`createMigratingSecretStore` 在首次讀取時把 Keychain 舊 secret 一次性搬入加密檔並刪除 Keychain 項目——最後允許一次授權後，之後所有重建永不再彈窗。拒絕授權則回報缺 secret，使用者可在通知頁重存 webhook。
+- 正式簽章（Phase 5）後 `app_signature_is_adhoc` 為 false，自動回到 Keychain 主路徑。新增 6 個 migrating store 測試，總計 155 tests。
+
+## 2026-07-19 — Claude 官方額度改用 stream-json `get_usage`，PTY 打字方案下線
+
+- 使用者回報：Claude 已重置且持續使用中，UI 仍長時間顯示「等待官方更新」。實機重現兩個根因：
+  1. 隱藏 PTY 送出的 `/usage` 完全沒有進入 Claude Code 2.1.215 的 TUI（輸出僅有啟動 banner，連字元回顯都沒有）；快取更新其實來自 Claude Code 啟動後自己的抓取，且該寫檔有 `wIg=300000`（5 分鐘）節流，等待 `fetchedAtMs` 前進的 45 秒窗口經常落空。
+  2. quotaStale 門檻 1 分鐘 < 刷新節流 4 分鐘：活躍使用時活動永遠比快取新，百分比被永久隱藏。
+- 解法：改用官方 stream-json 控制協定。`claude -p --input-format stream-json --output-format stream-json --verbose` 送 `{"type":"control_request","request":{"subtype":"get_usage"}}`，約 2 秒收到 `control_response`，內含 `rate_limits.limits`（與快取同構的 kind／percent／resets_at）。實測 0 tokens／0 cost；不讀 OAuth 憑證，Claude Code 內部自行呼叫 `/api/oauth/usage`。
+- Rust 端 `fetch_claude_usage_via_cli` 同步取得後直接建快照，並保存行程內 fresh 副本（因 Claude Code 落盤節流，行程內副本可比 `~/.claude.json` 新）；離線／失敗時退回檔案快取。刷新條件（resetAt 到點優先、滿額等待、活動觸發、30 分鐘保底、4 分鐘節流）不變。
+- quotaStale 門檻放寬到 15 分鐘：只有多輪刷新皆失敗才隱藏百分比，不再於正常使用時閃爍「等待官方更新」。
+- 新增 `#[ignore]` live 測試 `fetch_claude_usage_live`（`cargo test -- --ignored`）驗證真機協定；typecheck／lint／149 vitest 全綠。
+
 ## 2026-07-19 — 修正 `/status` 不會自行載入 Usage
 
 - 實機重現：`.claude.json` 官方 fetchedAt 停在 15:43、5h resetAt 已於 17:00 到期，18:39 transcript 仍有活動；UI 顯示等待更新是正確的新鮮度保護。

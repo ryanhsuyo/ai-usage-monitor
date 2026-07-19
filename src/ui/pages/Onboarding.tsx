@@ -328,7 +328,7 @@ export function OnboardingPage() {
             <h2 style={{ marginBottom: 6 }}>外部通知（選填）</h2>
             <p className="muted" style={{ marginBottom: 14 }}>
               Discord / Slack / Telegram / 自訂 Webhook 可以在之後的 <strong>Notifications</strong> 頁面新增並測試。
-              Webhook URL 與 Token 只會存放在 macOS Keychain 等系統安全儲存，不會進資料庫或匯出檔。
+              Webhook URL 與 Token 只會存放在 macOS Keychain 等系統安全儲存或本機加密檔，不會進資料庫或匯出檔。
             </p>
             <p className="muted">按「完成設定」進入 Dashboard。</p>
           </>

@@ -72,10 +72,11 @@
 - 依產品需求再收斂為純 resetAt 驅動：已有官方快取時，平常不主動執行 `/usage`；只在已知 resetAt 到點後確認是否真正重置。官方延遲時仍以 4 分鐘節流有限重試；只有完全沒有初始快取時例外嘗試一次 bootstrap
 - 修正「只在 resetAt 查詢」的適用範圍：只有任一 Claude 額度已滿（≥99.5%）且 resetAt 尚未到時才停止刷新並等待；一般使用中仍在 transcript 活動比快取新超過 1 分鐘時同步，另保留 30 分鐘低頻保底。resetAt 到點永遠優先立即確認
 - Claude transcript 時間不再覆蓋官方 `/usage fetchedAt`：Token／成本活動只更新 metadata，不能讓舊百分比偽裝成剛確認的額度；5h 列明確標為「Claude 5 小時（訂閱）」，避免 API Usage Billing 活動與訂閱額度混淆
-- Claude 2.1.215 官方 usage 快取落後於 transcript 活動超過 1 分鐘時標記 quotaStale；以本次觀察時間寫入低信心快照，確保它能取代歷史上錯誤較新的 0% 顯示。極簡列與小工具隱藏舊百分比並顯示「等待官方更新」，資料來源頁記錄同步異常。Token／API 等值仍由本機 transcript 顯示，不冒充訂閱額度
+- Claude 官方 usage 落後於 transcript 活動超過 15 分鐘（多輪刷新皆失敗）才標記 quotaStale；以本次觀察時間寫入低信心快照，確保它能取代歷史上錯誤較新的 0% 顯示。極簡列與小工具隱藏舊百分比並顯示「等待官方更新」，資料來源頁記錄同步異常。Token／API 等值仍由本機 transcript 顯示，不冒充訂閱額度
 - 本機活動改為事件驅動同步：遞迴監聽 `~/.claude/projects` 與 `~/.codex/sessions`，檔案寫入停止 1 秒後只收集對應 Provider 並立即刷新 UI／tray；五分鐘排程仍作為漏接事件的保底
-- Claude 官方額度自動刷新由隱藏 PTY 直接執行 `/usage`，最多等待 45 秒直到 `cachedUsageUtilization.fetchedAtMs` 真正前進才退出；`/status` 只會開啟 Status 分頁，不能視為已發出 usage request。官方端逾時時維持「等待官方更新」並由四分鐘節流重試
+- Claude 官方額度改由 stream-json 控制協定即時取得：`claude -p --input-format stream-json` 送 `get_usage` control request，約 2 秒回傳官方即時額度（0 tokens／0 cost，不經 PTY、不讀 OAuth Token）。取代先前隱藏 PTY 打字 `/usage` 的做法——實測該輸入根本進不了新版 TUI，且 Claude Code 自身快取寫入有 5 分鐘節流，等待 `fetchedAtMs` 前進常常落空。刷新結果直接用於快照（同時保存在行程內記憶），不再依賴 `~/.claude.json` 落盤；4 分鐘節流與「額度已滿等 reset」的省抓邏輯維持不變
 - Discord 通知同時送出可見純文字與詳細 Embed；即使 Discord 客戶端暫時未渲染 Embed，也不會只留下沒有內容的 Webhook 訊息
+- 未簽章（ad-hoc）build 不再於每次重建後觸發 macOS Keychain 授權彈窗：Rust 以 `codesign -dv` 偵測自身為 ad-hoc 簽名時，SecretStore 改用既有加密檔備援（DataSources 頁如實顯示「加密檔案」）；Keychain 內既有 secret 於第一次讀取時做一次性遷移（最後允許一次），之後所有重建都不再彈窗。取得正式簽章（Phase 5）後自動回到 Keychain
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次
 - Codex Full reset 票券在 72 小時內到期，或目前用量達 80% 建議使用時，會透過既有「額度即將到期」事件通知；文案含張數、到期時間、建議與最晚安全使用時間，按票券到期日去重
@@ -96,7 +97,7 @@
 - Phase 3：Browser 自動同步
 - Phase 4：Windows build（**架構邊界已保留**，TS 層無需改動）
 - Phase 5：簽章 / notarization / 自動更新
-- 已知小項：UI 測試有少量無害的 React `act()` warning（不影響結果）；Claude 官方額度以 Claude Code 本機快取為準，快取的新鮮度由 Claude Code 控制。過期快取不再顯示成目前用量，但在 Claude 寫入新快取前無法確認新週期精確百分比
+- 已知小項：UI 測試有少量無害的 React `act()` warning（不影響結果）；Claude 官方額度優先經 `get_usage` control request 即時取得，`~/.claude.json` 快取僅作為離線／失敗時的備援。連續刷新失敗超過 15 分鐘才會隱藏百分比顯示「等待官方更新」
 
 ## 環境備註
 

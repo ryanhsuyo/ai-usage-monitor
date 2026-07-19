@@ -230,18 +230,29 @@ export class InMemorySecretStore implements SecretStore {
 /**
  * Pick the best available secret store: OS keychain when the probe succeeds, otherwise an
  * app-data encrypted-file fallback (see fileSecretStore.ts). Never silently downgrades without
- * reporting which backend is active.
+ * reporting which backend is active (DataSources page shows the backend).
+ *
+ * An ad-hoc-signed build (unsigned dev/release builds before Phase 5 signing) counts as
+ * "keychain unreliable": its signing identity changes every rebuild, so the OS would show the
+ * keychain permission dialog again after every build. Those builds use the encrypted-file store,
+ * with a one-time lazy migration for secrets already sitting in the keychain.
  */
 export async function createBestSecretStore(): Promise<{ store: SecretStore; backend: "keychain" | "file" }> {
   const { invoke } = await import("@tauri-apps/api/core");
-  try {
-    const available = await invoke<boolean>("secret_backend_available");
-    if (available) {
-      return { store: createTauriSecretStore(), backend: "keychain" };
+  const adhoc = await invoke<boolean>("app_signature_is_adhoc").catch(() => false);
+  if (!adhoc) {
+    try {
+      const available = await invoke<boolean>("secret_backend_available");
+      if (available) {
+        return { store: createTauriSecretStore(), backend: "keychain" };
+      }
+    } catch {
+      // fall through to file fallback
     }
-  } catch {
-    // fall through to file fallback
   }
   const { createFileSecretStore } = await import("./fileSecretStore");
-  return { store: await createFileSecretStore(), backend: "file" };
+  const fileStore = await createFileSecretStore();
+  if (!adhoc) return { store: fileStore, backend: "file" };
+  const { createMigratingSecretStore } = await import("./migratingSecretStore");
+  return { store: createMigratingSecretStore(fileStore, createTauriSecretStore()), backend: "file" };
 }

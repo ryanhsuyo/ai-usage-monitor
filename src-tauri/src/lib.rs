@@ -272,6 +272,7 @@ pub fn run() {
             secret::secret_get,
             secret::secret_delete,
             secret::secret_backend_available,
+            secret::app_signature_is_adhoc,
         ])
         .setup(|app| {
             migrate_legacy_app_data(&app.handle());
