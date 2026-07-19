@@ -74,6 +74,7 @@
 - Claude transcript 時間不再覆蓋官方 `/usage fetchedAt`：Token／成本活動只更新 metadata，不能讓舊百分比偽裝成剛確認的額度；5h 列明確標為「Claude 5 小時（訂閱）」，避免 API Usage Billing 活動與訂閱額度混淆
 - Claude 2.1.215 官方 usage 快取落後於 transcript 活動超過 1 分鐘時標記 quotaStale；以本次觀察時間寫入低信心快照，確保它能取代歷史上錯誤較新的 0% 顯示。極簡列與小工具隱藏舊百分比並顯示「等待官方更新」，資料來源頁記錄同步異常。Token／API 等值仍由本機 transcript 顯示，不冒充訂閱額度
 - 本機活動改為事件驅動同步：遞迴監聽 `~/.claude/projects` 與 `~/.codex/sessions`，檔案寫入停止 1 秒後只收集對應 Provider 並立即刷新 UI／tray；五分鐘排程仍作為漏接事件的保底
+- Claude 官方額度自動刷新改為隱藏 PTY 執行實際可更新快取的 `/status`，並最多等待 25 秒直到 `cachedUsageUtilization.fetchedAtMs` 真正前進才退出；不再送出不可靠的 `/usage` 後固定 4 秒取消
 - Discord 通知同時送出可見純文字與詳細 Embed；即使 Discord 客戶端暫時未渲染 Embed，也不會只留下沒有內容的 Webhook 訊息
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次

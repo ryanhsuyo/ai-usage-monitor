@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — 自動執行 Claude `/status` 並確認快取更新
+
+- 根因：使用者手動 `/status` 可更新額度，但 Adapter 送的是 `/usage`，且固定 4 秒後取消；新版 Claude Code 的官方請求尚未完成就被中止。
+- macOS Adapter 改在隱藏 PTY 執行與使用者成功路徑相同的 `/status`，每 500ms 只檢查 `.claude.json` 的 `fetchedAtMs` 是否前進，成功即退出、最長等待 25 秒。
+- 不擷取終端輸出，不讀 OAuth Token，不產生模型 turns／tokens；既有四分鐘嘗試節流保留，避免官方服務異常時反覆啟動 Claude。
+
 ## 2026-07-19 — UI 跟隨 Claude／Codex 活動檔案同步
 
 - 根因：原本只有監聽 `~/.claude.json` 官方快取；實際對話活動先寫入 Claude transcript／Codex session，因此官方快取不動時 UI 最久需等五分鐘排程。
