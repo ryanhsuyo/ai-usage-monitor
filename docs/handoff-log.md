@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — 修正 `/status` 不會自行載入 Usage
+
+- 實機重現：`.claude.json` 官方 fetchedAt 停在 15:43、5h resetAt 已於 17:00 到期，18:39 transcript 仍有活動；UI 顯示等待更新是正確的新鮮度保護。
+- Claude Code 2.1.215 的 `/status` 預設停在 Status 分頁，沒有發出 usage request；切到 Usage 後官方請求仍逾時超過 40 秒，確認當下 Provider 未回資料，而非 SQLite／React 漏更新。
+- 隱藏 PTY 改回直接 `/usage`，但不再固定 4 秒取消；最多等待 45 秒，以 fetchedAt 真正前進判定成功。官方恢復時 `.claude.json` watcher 會立即收集並刷新 UI。
+
 ## 2026-07-19 — 自動執行 Claude `/status` 並確認快取更新
 
 - 根因：使用者手動 `/status` 可更新額度，但 Adapter 送的是 `/usage`，且固定 4 秒後取消；新版 Claude Code 的官方請求尚未完成就被中止。

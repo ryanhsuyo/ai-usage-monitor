@@ -141,9 +141,9 @@ fn refresh_claude_usage_cache(home: &str, root: &Value, latest_activity_at: Opti
     let binary = if local.exists() { local } else { PathBuf::from("claude") };
     let cache_path = Path::new(home).join(".claude.json");
 
-    // Recent Claude Code versions only refresh cachedUsageUtilization reliably when the real
-    // interactive `/status` screen is opened. Run that exact command in a hidden PTY, then wait
-    // for Claude itself to advance fetchedAtMs instead of cancelling after an arbitrary delay.
+    // Run the real interactive `/usage` command in a hidden PTY, then wait for Claude itself to
+    // advance fetchedAtMs instead of cancelling after an arbitrary delay. `/status` alone only
+    // opens its Status tab and does not request usage until the Usage tab is selected.
     // No terminal output, OAuth credential, prompt, or response is captured.
     #[cfg(target_os = "macos")]
     std::thread::spawn(move || {
@@ -155,12 +155,12 @@ fn refresh_claude_usage_cache(home: &str, root: &Value, latest_activity_at: Opti
             .spawn() else { return };
         let Some(mut stdin) = child.stdin.take() else { let _ = child.kill(); return };
         std::thread::sleep(Duration::from_secs(1));
-        let _ = stdin.write_all(b"/status\r");
+        let _ = stdin.write_all(b"/usage\r");
         let _ = stdin.flush();
 
-        // A manual /status normally updates within a few seconds. Allow slower network/keychain
-        // responses up to 25 seconds and stop as soon as the official cache actually changes.
-        for _ in 0..50 {
+        // Allow a slow provider response up to 45 seconds and stop as soon as the official cache
+        // actually changes. A four-minute outer throttle prevents retry storms during outages.
+        for _ in 0..90 {
             std::thread::sleep(Duration::from_millis(500));
             let updated = fs::read_to_string(&cache_path).ok()
                 .and_then(|body| serde_json::from_str::<Value>(&body).ok())
