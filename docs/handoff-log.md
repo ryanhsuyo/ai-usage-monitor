@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — Claude resetAt 事件驅動確認
+
+- 沿用前端每 30 秒 reset boundary 檢查：官方 `resetAt` 到點後立即呼叫 Monitor，觸發真正 `/usage` 確認新週期。
+- Rust 刷新條件改為 reset 到點、transcript 活動比官方快取新超過 1 分鐘，或快取已超過 30 分鐘；平常不再每 4–6 分鐘啟動 Claude CLI。
+- 4 分鐘只作為失敗與官方延遲的 retry throttle；到期仍未換週期時可有限重試，不會把預期時間當成已確認重置。
+
 ## 2026-07-19 — 修正 Claude 重置後額度不刷新
 
 - 實機確認 Claude Code 2.1.214 的 `claude -p /usage` 只回傳 0-token session summary，不會更新 `cachedUsageUtilization`；舊的自動刷新是假成功。

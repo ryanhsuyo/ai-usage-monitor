@@ -97,14 +97,22 @@ fn timestamp_unix(value: &str) -> Option<i64> {
 
 static CLAUDE_USAGE_REFRESH: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
-fn refresh_claude_usage_cache(home: &str, root: &Value) {
+fn refresh_claude_usage_cache(home: &str, root: &Value, latest_activity_at: Option<&str>) {
     let refresh = CLAUDE_USAGE_REFRESH.get_or_init(|| Mutex::new(None));
     let Ok(mut last_attempt) = refresh.lock() else { return };
     if last_attempt.as_ref().is_some_and(|at| at.elapsed() < Duration::from_secs(4 * 60)) { return; }
 
     let fetched_ms = root.pointer("/cachedUsageUtilization/fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
     let now_ms = OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
-    if fetched_ms > 0 && now_ms.saturating_sub(fetched_ms as i128) < 4 * 60 * 1_000 { return; }
+    let reset_due = root.pointer("/cachedUsageUtilization/utilization/limits").and_then(Value::as_array)
+        .is_some_and(|limits| limits.iter().any(|limit| {
+            limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
+                .is_some_and(|reset| reset <= OffsetDateTime::now_utc().unix_timestamp())
+        }));
+    let activity_newer_than_cache = latest_activity_at.and_then(timestamp_unix)
+        .is_some_and(|activity| activity as i128 * 1_000 > fetched_ms as i128 + 60_000);
+    let heartbeat_due = fetched_ms <= 0 || now_ms.saturating_sub(fetched_ms as i128) >= 30 * 60 * 1_000;
+    if !reset_due && !activity_newer_than_cache && !heartbeat_due { return; }
 
     let trusted_dir = root.get("projects").and_then(Value::as_object).and_then(|projects| {
         projects.iter().find_map(|(path, settings)| {
@@ -287,7 +295,6 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     let body = fs::read_to_string(Path::new(&home).join(".claude.json"))
         .map_err(|_| "找不到 Claude Code 本機設定".to_string())?;
     let root: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    refresh_claude_usage_cache(&home, &root);
     let cached = root.get("cachedUsageUtilization")
         .ok_or_else(|| "Claude Code 尚未快取 /usage 資料；請先執行一次 /usage".to_string())?;
     let fetched_ms = cached.get("fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
@@ -297,6 +304,7 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
         .ok_or_else(|| "Claude Code /usage 快取沒有額度資料".to_string())?;
     let since = OffsetDateTime::now_utc().unix_timestamp() - 24 * 60 * 60;
     let (model_usage, session_count, transcript_captured_at) = claude_recent_usage(&home, since);
+    refresh_claude_usage_cache(&home, &root, transcript_captured_at.as_deref());
     let captured_at = transcript_captured_at.filter(|timestamp| timestamp > &captured_at).unwrap_or(captured_at);
     let input_tokens = model_usage.iter().map(|usage| usage.input_tokens).sum();
     let cached_input_tokens = model_usage.iter().map(|usage| usage.cache_read_tokens).sum();
