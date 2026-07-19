@@ -8,6 +8,10 @@ export type DailyModelUsage = {
   model: string;
   inputTokens: number;
   cacheCreationTokens: number;
+  /** 5-minute-TTL share of cacheCreationTokens (billed 1.25x input). */
+  cacheCreation5mTokens: number;
+  /** 1-hour-TTL share of cacheCreationTokens (billed 2x input; Claude Code default). */
+  cacheCreation1hTokens: number;
   cacheReadTokens: number;
   outputTokens: number;
   messageCount: number;
@@ -19,6 +23,8 @@ export type ModelPeriodUsage = {
   model: string;
   inputTokens: number;
   cacheCreationTokens: number;
+  cacheCreation5mTokens: number;
+  cacheCreation1hTokens: number;
   cacheReadTokens: number;
   outputTokens: number;
   messageCount: number;
@@ -55,7 +61,7 @@ export function periodKey(date: string, granularity: PeriodGranularity): string 
   return date;
 }
 
-export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: PeriodGranularity): PeriodUsage[] {
+export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: PeriodGranularity, nowIso?: string): PeriodUsage[] {
   const byPeriod = new Map<string, Map<string, ModelPeriodUsage>>();
   for (const row of rows) {
     const key = periodKey(row.date, granularity);
@@ -66,11 +72,13 @@ export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: Perio
     }
     let entry = models.get(row.model);
     if (!entry) {
-      entry = { model: row.model, inputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens: 0, messageCount: 0 };
+      entry = { model: row.model, inputTokens: 0, cacheCreationTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, cacheReadTokens: 0, outputTokens: 0, messageCount: 0 };
       models.set(row.model, entry);
     }
     entry.inputTokens += row.inputTokens;
     entry.cacheCreationTokens += row.cacheCreationTokens;
+    entry.cacheCreation5mTokens += row.cacheCreation5mTokens;
+    entry.cacheCreation1hTokens += row.cacheCreation1hTokens;
     entry.cacheReadTokens += row.cacheReadTokens;
     entry.outputTokens += row.outputTokens;
     entry.messageCount += row.messageCount;
@@ -79,10 +87,13 @@ export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: Perio
   const periods: PeriodUsage[] = [];
   for (const [period, models] of byPeriod) {
     const modelRows = [...models.values()].map((entry) => {
-      const price = claudePrice(entry.model);
+      const price = claudePrice(entry.model, nowIso);
+      // Cache writes without a TTL breakdown are billed as 1-hour writes (Claude Code default).
+      const untaggedWrites = Math.max(0, entry.cacheCreationTokens - entry.cacheCreation5mTokens - entry.cacheCreation1hTokens);
       const cost = price ? (
         entry.inputTokens * price.input +
-        entry.cacheCreationTokens * price.cacheCreation +
+        entry.cacheCreation5mTokens * price.cacheWrite5m +
+        (entry.cacheCreation1hTokens + untaggedWrites) * price.cacheWrite1h +
         entry.cacheReadTokens * price.cacheRead +
         entry.outputTokens * price.output
       ) / 1_000_000 : undefined;

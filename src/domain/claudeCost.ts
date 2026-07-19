@@ -5,38 +5,63 @@ export type ClaudeModelUsage = CodexModelUsage & {
   cacheReadTokens?: number;
 };
 
-// Official Claude API list prices (USD per 1M tokens, 2026-06 pricing).
-// Cache write = 1.25x input (5-minute TTL), cache read = 0.1x input.
-const PRICES: Record<string, { input: number; cacheCreation: number; cacheRead: number; output: number }> = {
-  "claude-fable-5": { input: 10, cacheCreation: 12.5, cacheRead: 1, output: 50 },
-  "claude-mythos-5": { input: 10, cacheCreation: 12.5, cacheRead: 1, output: 50 },
-  "claude-opus-4-8": { input: 5, cacheCreation: 6.25, cacheRead: 0.5, output: 25 },
-  "claude-opus-4-7": { input: 5, cacheCreation: 6.25, cacheRead: 0.5, output: 25 },
-  "claude-opus-4-6": { input: 5, cacheCreation: 6.25, cacheRead: 0.5, output: 25 },
-  "claude-opus-4-5": { input: 5, cacheCreation: 6.25, cacheRead: 0.5, output: 25 },
-  "claude-sonnet-5": { input: 3, cacheCreation: 3.75, cacheRead: 0.3, output: 15 },
-  "claude-sonnet-4-6": { input: 3, cacheCreation: 3.75, cacheRead: 0.3, output: 15 },
-  "claude-sonnet-4-5": { input: 3, cacheCreation: 3.75, cacheRead: 0.3, output: 15 },
-  "claude-haiku-4-5": { input: 1, cacheCreation: 1.25, cacheRead: 0.1, output: 5 },
+export type ClaudeModelPrice = {
+  input: number;
+  /** Cache write, 5-minute TTL: 1.25x input. */
+  cacheWrite5m: number;
+  /** Cache write, 1-hour TTL: 2x input. Claude Code writes its prompt cache with this TTL. */
+  cacheWrite1h: number;
+  /** Cache read: 0.1x input. */
+  cacheRead: number;
+  output: number;
 };
+
+function tier(input: number, output: number): ClaudeModelPrice {
+  return { input, cacheWrite5m: input * 1.25, cacheWrite1h: input * 2, cacheRead: input * 0.1, output };
+}
+
+// Official Claude API list prices (USD per 1M tokens, 2026-06 pricing).
+const PRICES: Record<string, ClaudeModelPrice> = {
+  "claude-fable-5": tier(10, 50),
+  "claude-mythos-5": tier(10, 50),
+  "claude-opus-4-8": tier(5, 25),
+  "claude-opus-4-7": tier(5, 25),
+  "claude-opus-4-6": tier(5, 25),
+  "claude-opus-4-5": tier(5, 25),
+  "claude-sonnet-5": tier(3, 15),
+  "claude-sonnet-4-6": tier(3, 15),
+  "claude-sonnet-4-5": tier(3, 15),
+  "claude-haiku-4-5": tier(1, 5),
+};
+
+// Sonnet 5 launched with introductory pricing through 2026-08-31.
+const SONNET_5_INTRO_UNTIL = "2026-09-01";
+const SONNET_5_INTRO = tier(2, 10);
 
 // Longest key first so "claude-opus-4-5-20251101" resolves to opus-4-5, never a shorter cousin.
 const PRICE_KEYS = Object.keys(PRICES).sort((a, b) => b.length - a.length);
 
 /** Price table lookup tolerating dated snapshot IDs like `claude-haiku-4-5-20251001`. */
-export function claudePrice(model: string) {
+export function claudePrice(model: string, nowIso?: string): ClaudeModelPrice | undefined {
   const key = model.toLowerCase();
-  if (PRICES[key]) return PRICES[key];
-  const prefix = PRICE_KEYS.find((candidate) => key.startsWith(`${candidate}-`));
-  return prefix ? PRICES[prefix] : undefined;
+  const base = PRICES[key]
+    ?? (() => {
+      const prefix = PRICE_KEYS.find((candidate) => key.startsWith(`${candidate}-`));
+      return prefix ? PRICES[prefix] : undefined;
+    })();
+  if (!base) return undefined;
+  const isSonnet5 = key === "claude-sonnet-5" || key.startsWith("claude-sonnet-5-");
+  if (isSonnet5 && (nowIso ?? new Date().toISOString()) < SONNET_5_INTRO_UNTIL) return SONNET_5_INTRO;
+  return base;
 }
 
 export function estimateClaudeApiEquivalent(models: ClaudeModelUsage[]) {
   return models.map((usage) => {
     const price = claudePrice(usage.model);
+    // No per-TTL breakdown at this call site; Claude Code cache writes are 1-hour TTL.
     const cost = price ? (
       usage.inputTokens * price.input +
-      (usage.cacheCreationTokens ?? 0) * price.cacheCreation +
+      (usage.cacheCreationTokens ?? 0) * price.cacheWrite1h +
       (usage.cacheReadTokens ?? usage.cachedInputTokens) * price.cacheRead +
       usage.outputTokens * price.output
     ) / 1_000_000 : undefined;

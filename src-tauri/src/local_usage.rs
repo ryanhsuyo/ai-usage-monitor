@@ -353,6 +353,10 @@ pub struct DailyModelUsage {
     model: String,
     input_tokens: u64,
     cache_creation_tokens: u64,
+    #[serde(rename = "cacheCreation5mTokens")]
+    cache_creation_5m_tokens: u64,
+    #[serde(rename = "cacheCreation1hTokens")]
+    cache_creation_1h_tokens: u64,
     cache_read_tokens: u64,
     output_tokens: u64,
     message_count: u64,
@@ -388,10 +392,14 @@ pub fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModel
             let Ok(date) = local.date().format(&date_format) else { continue };
             let entry = by_day_model.entry((date.clone(), model.to_string())).or_insert_with(|| DailyModelUsage {
                 date, model: model.to_string(),
-                input_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0, output_tokens: 0, message_count: 0,
+                input_tokens: 0, cache_creation_tokens: 0, cache_creation_5m_tokens: 0, cache_creation_1h_tokens: 0,
+                cache_read_tokens: 0, output_tokens: 0, message_count: 0,
             });
             entry.input_tokens += usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
             entry.cache_creation_tokens += usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0);
+            // TTL breakdown decides cache-write pricing (5m = 1.25x input, 1h = 2x input).
+            entry.cache_creation_5m_tokens += usage.pointer("/cache_creation/ephemeral_5m_input_tokens").and_then(Value::as_u64).unwrap_or(0);
+            entry.cache_creation_1h_tokens += usage.pointer("/cache_creation/ephemeral_1h_input_tokens").and_then(Value::as_u64).unwrap_or(0);
             entry.cache_read_tokens += usage.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0);
             entry.output_tokens += usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
             entry.message_count += 1;
@@ -469,10 +477,8 @@ mod tests {
         let started = Instant::now();
         let rows = read_claude_usage_daily(8 * 60).expect("daily usage");
         assert!(!rows.is_empty());
-        for row in rows.iter().rev().take(6) {
-            eprintln!("{} {} in={} cc={} cr={} out={} msgs={}", row.date, row.model,
-                row.input_tokens, row.cache_creation_tokens, row.cache_read_tokens, row.output_tokens, row.message_count);
-        }
+        // Full JSON dump on stdout so the result can be cross-checked against ccusage.
+        println!("{}", serde_json::to_string(&rows).expect("serialize"));
         eprintln!("rows={} elapsed={:?}", rows.len(), started.elapsed());
     }
 

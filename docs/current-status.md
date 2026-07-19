@@ -76,7 +76,7 @@
 - 本機活動改為事件驅動同步：遞迴監聽 `~/.claude/projects` 與 `~/.codex/sessions`，檔案寫入停止 1 秒後只收集對應 Provider 並立即刷新 UI／tray；五分鐘排程仍作為漏接事件的保底
 - Claude 官方額度改由 stream-json 控制協定即時取得：`claude -p --input-format stream-json` 送 `get_usage` control request，約 2 秒回傳官方即時額度（0 tokens／0 cost，不經 PTY、不讀 OAuth Token）。取代先前隱藏 PTY 打字 `/usage` 的做法——實測該輸入根本進不了新版 TUI，且 Claude Code 自身快取寫入有 5 分鐘節流，等待 `fetchedAtMs` 前進常常落空。刷新結果直接用於快照（同時保存在行程內記憶），不再依賴 `~/.claude.json` 落盤；4 分鐘節流與「額度已滿等 reset」的省抓邏輯維持不變
 - Discord 通知同時送出可見純文字與詳細 Embed；即使 Discord 客戶端暫時未渲染 Embed，也不會只留下沒有內容的 Webhook 訊息
-- 新增「成本統計」頁（ccusage 風格）：掃描 `~/.claude/projects` 全部本機對話紀錄，依 message.id 去重後以每日×模型彙總（Rust `read_claude_usage_daily`，數百 MB 歷史約 0.5 秒），前端純函式聚合成每日／每週（週一起算）／每月檢視，顯示 Input／Output／Cache 寫讀 token、訊息數與 API 等值美元；多模型期間逐模型分項。定價表更新為官方牌價（Fable $10/$50、Opus $5/$25、Sonnet $3/$15、Haiku $1/$5；cache 寫 1.25×、讀 0.1×）並支援帶日期字尾的模型 ID，未定價模型如實標示且總額顯示 `≥`
+- 新增「成本統計」頁（ccusage 風格）：掃描 `~/.claude/projects` 全部本機對話紀錄，依 message.id 去重後以每日×模型彙總（Rust `read_claude_usage_daily`，數百 MB 歷史約 0.5 秒），前端純函式聚合成每日／每週（週一起算）／每月檢視，顯示 Input／Output／Cache 寫讀 token、訊息數與 API 等值美元；多模型期間逐模型分項。定價表更新為官方牌價（Fable $10/$50、Opus $5/$25、Sonnet $3/$15 促銷 $2/$10 至 2026-08-31、Haiku $1/$5；cache 寫入依 TTL 分項計價 5m=1.25×／1h=2×、讀 0.1×）並支援帶日期字尾的模型 ID，已與 ccusage 月報實測對帳（誤差 <0.3%），未定價模型如實標示且總額顯示 `≥`
 - 未簽章（ad-hoc）build 不再於每次重建後觸發 macOS Keychain 授權彈窗：Rust 以 `codesign -dv` 偵測自身為 ad-hoc 簽名時，SecretStore 改用既有加密檔備援（DataSources 頁如實顯示「加密檔案」）；Keychain 內既有 secret 於第一次讀取時做一次性遷移（最後允許一次），之後所有重建都不再彈窗。取得正式簽章（Phase 5）後自動回到 Keychain
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次

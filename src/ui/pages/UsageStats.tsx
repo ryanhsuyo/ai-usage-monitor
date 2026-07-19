@@ -149,7 +149,7 @@ export function UsageStatsPage() {
             </table>
           </div>
           <p className="hint" style={{ marginTop: 8 }}>
-            ※ 依官方 API 牌價估算（cache 寫入 1.25×、讀取 0.1× input 價），為 API 等值成本，不是訂閱實際扣款。
+            ※ 依官方 API 牌價估算（cache 寫入依 TTL 計價：5 分鐘 1.25×、1 小時 2×；讀取 0.1×），為 API 等值成本，不是訂閱實際扣款。
           </p>
         </>
       )}

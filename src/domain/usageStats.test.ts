@@ -3,7 +3,8 @@ import { aggregateClaudeUsage, periodKey, summarizeUsagePeriods, weekStart, type
 function row(overrides: Partial<DailyModelUsage>): DailyModelUsage {
   return {
     date: "2026-07-19", model: "claude-opus-4-8",
-    inputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens: 0, messageCount: 1,
+    inputTokens: 0, cacheCreationTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0,
+    cacheReadTokens: 0, outputTokens: 0, messageCount: 1,
     ...overrides,
   };
 }
@@ -66,6 +67,23 @@ describe("aggregateClaudeUsage", () => {
     expect(july.models.find((m) => m.model === "future-model")!.cost).toBeUndefined();
     // Unpriced models contribute tokens but not cost.
     expect(july.outputTokens).toBe(2000 + 1000 + 1_000_000 + 200_000 + 10);
+  });
+
+  it("prices cache writes per TTL and bills untagged writes as 1-hour", () => {
+    const split = aggregateClaudeUsage([
+      row({ cacheCreationTokens: 1_000_000, cacheCreation5mTokens: 400_000, cacheCreation1hTokens: 600_000 }),
+    ], "daily");
+    // opus: 400K*6.25 + 600K*10 = 2.5 + 6.0
+    expect(split[0]!.cost).toBeCloseTo(8.5, 5);
+
+    const untagged = aggregateClaudeUsage([row({ cacheCreationTokens: 1_000_000 })], "daily");
+    expect(untagged[0]!.cost).toBeCloseTo(10, 5); // falls back to the 1h (2x) rate
+  });
+
+  it("applies Sonnet 5 introductory pricing based on the supplied clock", () => {
+    const sonnetRows = [row({ model: "claude-sonnet-5", outputTokens: 1_000_000 })];
+    expect(aggregateClaudeUsage(sonnetRows, "daily", "2026-07-19T00:00:00Z")[0]!.cost).toBeCloseTo(10, 5);
+    expect(aggregateClaudeUsage(sonnetRows, "daily", "2026-10-01T00:00:00Z")[0]!.cost).toBeCloseTo(15, 5);
   });
 
   it("summarizes across periods", () => {

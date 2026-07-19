@@ -7,7 +7,9 @@
 - Domain 新增 `usageStats.ts`：`aggregateClaudeUsage` 聚合 daily／weekly（ISO 週一起算）／monthly，含每模型 API 等值成本、未定價模型旗標；`summarizeUsagePeriods` 出全期間總計。10 個新 Vitest。
 - `claudeCost.ts` 定價表改為官方牌價並補齊模型（Fable/Mythos $10/$50、Opus 4.5–4.8 $5/$25、Sonnet 4.5–5 $3/$15、Haiku 4.5 $1/$5；cache 寫 1.25×、讀 0.1×），新增 `claudePrice` 前綴比對支援 `claude-haiku-4-5-20251001` 這類帶日期字尾 ID。注意：既有 Fable 12/70 舊估價修正為官方 10/50，UI 各處 API 等值金額會略降。
 - UI 新增 `usageStats` 頁與側欄「成本統計」：期間彙總卡片＋表格（多模型期間逐模型分項）、每日／每週／每月切換；瀏覽器模式如實顯示需桌面 App。已在瀏覽器預覽驗證路由與空狀態、以 live 測試驗證真實資料路徑。
-- 全數驗收綠：typecheck／lint／163 tests／cargo check／tauri build。
+- 快取寫入依 TTL 計價：解析 transcript `usage.cache_creation.ephemeral_5m/1h_input_tokens`，5 分鐘寫入 1.25×、1 小時寫入 2×（Claude Code 即為 1h TTL；無分項時保守以 1h 計）；Sonnet 5 促銷價（$2/$10）計至 2026-08-31 由 `claudePrice(model, nowIso)` 自動切換。
+- 與 `npx ccusage@latest monthly --json` 實測對帳：2026-07 Claude 四模型（fable/opus/sonnet/haiku）成本差距 0.02%–0.3%（時間差與月界時區），sonnet 分毫不差；合計 兩者差距在 0.3% 以內。
+- 全數驗收綠：typecheck／lint／167 tests／cargo check／tauri build。
 
 ## 2026-07-19 — 未簽章 build 不再反覆觸發 Keychain 授權彈窗
 
