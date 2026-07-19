@@ -71,6 +71,7 @@
 - Claude 官方刷新改為事件驅動：resetAt 到點立即確認；transcript 有新活動但快取落後時確認；無事件僅每 30 分鐘保底。失敗／官方延遲時以 4 分鐘節流重試，不再固定頻繁啟動 CLI
 - 依產品需求再收斂為純 resetAt 驅動：已有官方快取時，平常不主動執行 `/usage`；只在已知 resetAt 到點後確認是否真正重置。官方延遲時仍以 4 分鐘節流有限重試；只有完全沒有初始快取時例外嘗試一次 bootstrap
 - 修正「只在 resetAt 查詢」的適用範圍：只有任一 Claude 額度已滿（≥99.5%）且 resetAt 尚未到時才停止刷新並等待；一般使用中仍在 transcript 活動比快取新超過 1 分鐘時同步，另保留 30 分鐘低頻保底。resetAt 到點永遠優先立即確認
+- Claude transcript 時間不再覆蓋官方 `/usage fetchedAt`：Token／成本活動只更新 metadata，不能讓舊百分比偽裝成剛確認的額度；5h 列明確標為「Claude 5 小時（訂閱）」，避免 API Usage Billing 活動與訂閱額度混淆
 - Discord 通知同時送出可見純文字與詳細 Embed；即使 Discord 客戶端暫時未渲染 Embed，也不會只留下沒有內容的 Webhook 訊息
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次

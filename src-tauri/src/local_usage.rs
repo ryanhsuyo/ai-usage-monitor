@@ -316,7 +316,9 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     let since = OffsetDateTime::now_utc().unix_timestamp() - 24 * 60 * 60;
     let (model_usage, session_count, transcript_captured_at) = claude_recent_usage(&home, since);
     refresh_claude_usage_cache(&home, &root, transcript_captured_at.as_deref());
-    let captured_at = transcript_captured_at.filter(|timestamp| timestamp > &captured_at).unwrap_or(captured_at);
+    // Quota freshness must remain the official /usage fetchedAt. Transcript activity only
+    // enriches token/cost metadata; promoting its timestamp would make an old percentage look
+    // freshly confirmed even when Claude's usage cache did not update.
     let input_tokens = model_usage.iter().map(|usage| usage.input_tokens).sum();
     let cached_input_tokens = model_usage.iter().map(|usage| usage.cache_read_tokens).sum();
     let output_tokens = model_usage.iter().map(|usage| usage.output_tokens).sum();

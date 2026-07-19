@@ -67,7 +67,7 @@ function codexCostTooltip(meta: CodexMeta | undefined): string {
 
 function compactLimitLabel(provider: string, limit: { name: string; type: string; model?: string }) {
   if (provider !== "claude") return PROVIDER_LABELS[provider] ?? provider;
-  if (limit.type === "rolling_session") return "Claude 5 小時";
+  if (limit.type === "rolling_session") return "Claude 5 小時（訂閱）";
   if (limit.type === "weekly_model") return `${limit.model ?? limit.name.match(/[（(](.+?)[）)]/)?.[1] ?? "模型"} 本週`;
   const scoped = limit.name.match(/[（(](.+?)[）)]/)?.[1];
   if (scoped && scoped !== "全模型") return `${scoped} 本週`;

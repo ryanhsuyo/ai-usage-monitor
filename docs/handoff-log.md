@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — 區分 Claude 訂閱額度與 API 活動
+
+- 實機狀態：官方快取 11:46 回傳 Session 0%，12:18 仍有 transcript 活動，而 Claude Code 2.1.215 啟動畫面顯示 `API Usage Billing`；兩者可同時成立。
+- 修正 snapshot capturedAt：只採官方 `cachedUsageUtilization.fetchedAtMs`，不再用較新的 transcript timestamp 包裝舊百分比；transcript 仍只用於 Token／API 等值 metadata。
+- compact 5h 標籤改為「Claude 5 小時（訂閱）」，降低使用者把 API 計費工作誤認為會消耗訂閱額度的風險。
+
 ## 2026-07-19 — 僅滿額時等待 resetAt
 
 - 更正需求解讀：一般使用期間恢復「活動後同步＋30 分鐘保底」，盡可能維持 Claude 額度新鮮。
