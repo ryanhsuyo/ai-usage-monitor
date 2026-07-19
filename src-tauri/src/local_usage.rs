@@ -97,21 +97,33 @@ fn timestamp_unix(value: &str) -> Option<i64> {
 
 static CLAUDE_USAGE_REFRESH: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
-fn refresh_claude_usage_cache(home: &str, root: &Value) {
+fn refresh_claude_usage_cache(home: &str, root: &Value, latest_activity_at: Option<&str>) {
     let refresh = CLAUDE_USAGE_REFRESH.get_or_init(|| Mutex::new(None));
     let Ok(mut last_attempt) = refresh.lock() else { return };
     if last_attempt.as_ref().is_some_and(|at| at.elapsed() < Duration::from_secs(4 * 60)) { return; }
 
     let fetched_ms = root.pointer("/cachedUsageUtilization/fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
-    let reset_due = root.pointer("/cachedUsageUtilization/utilization/limits").and_then(Value::as_array)
-        .is_some_and(|limits| limits.iter().any(|limit| {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let now_ms = now as i128 * 1_000;
+    let limits = root.pointer("/cachedUsageUtilization/utilization/limits").and_then(Value::as_array);
+    let reset_due = limits.is_some_and(|limits| limits.iter().any(|limit| {
             limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
-                .is_some_and(|reset| reset <= OffsetDateTime::now_utc().unix_timestamp())
+                .is_some_and(|reset| reset <= now)
         }));
-    // With an existing cache, wait for the provider's advertised reset boundary. Claude Code
-    // itself updates ordinary in-cycle usage while it is running; this background command exists
-    // only to confirm that a due reset actually happened. A missing cache gets one bootstrap try.
-    if fetched_ms > 0 && !reset_due { return; }
+    let full_waiting_for_reset = limits.is_some_and(|limits| limits.iter().any(|limit| {
+        limit.get("percent").and_then(Value::as_f64).is_some_and(|percent| percent >= 99.5)
+            && limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
+                .is_some_and(|reset| reset > now)
+    }));
+    let activity_newer_than_cache = latest_activity_at.and_then(timestamp_unix)
+        .is_some_and(|activity| activity as i128 * 1_000 > fetched_ms as i128 + 60_000);
+    let heartbeat_due = fetched_ms <= 0 || now_ms.saturating_sub(fetched_ms as i128) >= 30 * 60 * 1_000;
+
+    // A full quota cannot change before its advertised reset, so avoid pointless refreshes until
+    // that boundary. Otherwise keep normal usage reasonably fresh after activity and via a
+    // low-frequency heartbeat. A due reset always takes precedence and is confirmed immediately.
+    if !reset_due && full_waiting_for_reset { return; }
+    if !reset_due && !activity_newer_than_cache && !heartbeat_due { return; }
 
     let trusted_dir = root.get("projects").and_then(Value::as_object).and_then(|projects| {
         projects.iter().find_map(|(path, settings)| {
@@ -303,7 +315,7 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
         .ok_or_else(|| "Claude Code /usage 快取沒有額度資料".to_string())?;
     let since = OffsetDateTime::now_utc().unix_timestamp() - 24 * 60 * 60;
     let (model_usage, session_count, transcript_captured_at) = claude_recent_usage(&home, since);
-    refresh_claude_usage_cache(&home, &root);
+    refresh_claude_usage_cache(&home, &root, transcript_captured_at.as_deref());
     let captured_at = transcript_captured_at.filter(|timestamp| timestamp > &captured_at).unwrap_or(captured_at);
     let input_tokens = model_usage.iter().map(|usage| usage.input_tokens).sum();
     let cached_input_tokens = model_usage.iter().map(|usage| usage.cache_read_tokens).sum();

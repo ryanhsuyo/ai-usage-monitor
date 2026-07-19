@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — 僅滿額時等待 resetAt
+
+- 更正需求解讀：一般使用期間恢復「活動後同步＋30 分鐘保底」，盡可能維持 Claude 額度新鮮。
+- 只有任一官方 limit 已達 99.5% 且 resetAt 仍在未來時，才暫停背景 `/usage` 並直接等到重置時間。
+- resetAt 到點的確認優先於滿額等待；若官方尚未切週期，仍使用 4 分鐘 retry throttle。
+
 ## 2026-07-19 — Claude 僅在 resetAt 到點確認
 
 - 移除 transcript 新活動觸發與每 30 分鐘 heartbeat；已有官方快取時，Adapter 平常完全不主動執行 Claude `/usage`。
