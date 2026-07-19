@@ -268,6 +268,7 @@ pub fn run() {
             diagnostics::diagnostic_export,
             local_usage::read_codex_local_usage,
             local_usage::read_claude_local_usage,
+            local_usage::read_claude_usage_daily,
             secret::secret_set,
             secret::secret_get,
             secret::secret_delete,

@@ -20,6 +20,7 @@ import { getAppServices } from "../appServices";
 export type PageId =
   | "dashboard"
   | "history"
+  | "usageStats"
   | "activity"
   | "plans"
   | "dataSources"

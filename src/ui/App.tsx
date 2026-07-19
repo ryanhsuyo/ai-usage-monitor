@@ -16,6 +16,7 @@ import type { UsageSnapshot } from "@/domain/types";
 import { useAppStore, type PageId } from "./state/store";
 import { DashboardPage } from "./pages/Dashboard";
 import { HistoryPage } from "./pages/History";
+import { UsageStatsPage } from "./pages/UsageStats";
 import { ActivityPage } from "./pages/Activity";
 import { PlansPage } from "./pages/Plans";
 import { DataSourcesPage } from "./pages/DataSources";
@@ -292,6 +293,7 @@ function WindowControlIcon({ type, filled = false }: { type: WindowControlIconTy
 const NAV: Array<{ id: PageId; icon: string; label: string }> = [
   { id: "dashboard", icon: "▦", label: "總覽" },
   { id: "history", icon: "↗", label: "用量趨勢" },
+  { id: "usageStats", icon: "$", label: "成本統計" },
   { id: "activity", icon: "▷", label: "活動紀錄" },
   { id: "plans", icon: "◈", label: "方案與額度" },
   { id: "dataSources", icon: "◎", label: "資料來源" },
@@ -626,6 +628,7 @@ export function App() {
         )}
         {store.page === "dashboard" && <DashboardPage />}
         {store.page === "history" && <HistoryPage />}
+        {store.page === "usageStats" && <UsageStatsPage />}
         {store.page === "activity" && <ActivityPage />}
         {store.page === "plans" && <PlansPage />}
         {store.page === "dataSources" && <DataSourcesPage />}

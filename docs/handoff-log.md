@@ -1,5 +1,14 @@
 # Handoff Log
 
+## 2026-07-19 — ccusage 風格成本統計頁
+
+- 需求：像 `npx ccusage daily/weekly/monthly` 一樣看見「到底花了多少」。
+- Rust 新增 `read_claude_usage_daily(utc_offset_minutes)`：掃描 `~/.claude/projects` 全部 jsonl，依 `message.id`（fallback `requestId`）跨檔案去重、跳過 `<synthetic>`，以呼叫端時區把 timestamp 分桶成每日×模型 token 統計。live 測試（`cargo test -- --ignored`）實測 數百 MB 的本機歷史約 0.46 秒。
+- Domain 新增 `usageStats.ts`：`aggregateClaudeUsage` 聚合 daily／weekly（ISO 週一起算）／monthly，含每模型 API 等值成本、未定價模型旗標；`summarizeUsagePeriods` 出全期間總計。10 個新 Vitest。
+- `claudeCost.ts` 定價表改為官方牌價並補齊模型（Fable/Mythos $10/$50、Opus 4.5–4.8 $5/$25、Sonnet 4.5–5 $3/$15、Haiku 4.5 $1/$5；cache 寫 1.25×、讀 0.1×），新增 `claudePrice` 前綴比對支援 `claude-haiku-4-5-20251001` 這類帶日期字尾 ID。注意：既有 Fable 12/70 舊估價修正為官方 10/50，UI 各處 API 等值金額會略降。
+- UI 新增 `usageStats` 頁與側欄「成本統計」：期間彙總卡片＋表格（多模型期間逐模型分項）、每日／每週／每月切換；瀏覽器模式如實顯示需桌面 App。已在瀏覽器預覽驗證路由與空狀態、以 live 測試驗證真實資料路徑。
+- 全數驗收綠：typecheck／lint／163 tests／cargo check／tauri build。
+
 ## 2026-07-19 — 未簽章 build 不再反覆觸發 Keychain 授權彈窗
 
 - 使用者回報：啟動時 macOS 反覆跳出「ai-usage-monitor wants to use your confidential information stored in "com.aiusagemonitor.app"」。

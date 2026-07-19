@@ -346,6 +346,62 @@ fn claude_recent_usage(home: &str, since_unix: i64) -> (Vec<ModelUsage>, usize, 
     (models, sessions.len(), latest_timestamp)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyModelUsage {
+    date: String,
+    model: String,
+    input_tokens: u64,
+    cache_creation_tokens: u64,
+    cache_read_tokens: u64,
+    output_tokens: u64,
+    message_count: u64,
+}
+
+/// Aggregate the full local Claude Code transcript history into per-day, per-model token totals
+/// (ccusage-style). Dates are bucketed in the caller's timezone via `utc_offset_minutes`.
+#[tauri::command]
+pub fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
+    let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
+    let mut files = Vec::new();
+    jsonl_files(&Path::new(&home).join(".claude/projects"), &mut files);
+    if files.is_empty() {
+        return Err("找不到 Claude Code 本機對話紀錄（~/.claude/projects）".into());
+    }
+    let date_format = time::format_description::parse_borrowed::<2>("[year]-[month]-[day]")
+        .map_err(|error| error.to_string())?;
+    let mut seen_messages = HashSet::new();
+    let mut by_day_model: HashMap<(String, String), DailyModelUsage> = HashMap::new();
+    for (_, path) in files {
+        let Ok(body) = fs::read_to_string(&path) else { continue };
+        for line in body.lines() {
+            let Ok(root) = serde_json::from_str::<Value>(line) else { continue };
+            let Some(usage) = root.pointer("/message/usage") else { continue };
+            let message_id = root.pointer("/message/id").and_then(Value::as_str)
+                .or_else(|| root.get("requestId").and_then(Value::as_str))
+                .unwrap_or("");
+            if message_id.is_empty() || !seen_messages.insert(message_id.to_string()) { continue; }
+            let model = root.pointer("/message/model").and_then(Value::as_str).unwrap_or("unknown");
+            if model == "<synthetic>" { continue; }
+            let Some(unix) = root.get("timestamp").and_then(Value::as_str).and_then(timestamp_unix) else { continue };
+            let Ok(local) = OffsetDateTime::from_unix_timestamp(unix + i64::from(utc_offset_minutes) * 60) else { continue };
+            let Ok(date) = local.date().format(&date_format) else { continue };
+            let entry = by_day_model.entry((date.clone(), model.to_string())).or_insert_with(|| DailyModelUsage {
+                date, model: model.to_string(),
+                input_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0, output_tokens: 0, message_count: 0,
+            });
+            entry.input_tokens += usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+            entry.cache_creation_tokens += usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0);
+            entry.cache_read_tokens += usage.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0);
+            entry.output_tokens += usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+            entry.message_count += 1;
+        }
+    }
+    let mut rows: Vec<DailyModelUsage> = by_day_model.into_values().collect();
+    rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.model.cmp(&b.model)));
+    Ok(rows)
+}
+
 #[tauri::command]
 pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
@@ -406,6 +462,19 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "live check: reads the real ~/.claude/projects transcript history"]
+    fn read_claude_usage_daily_live() {
+        let started = Instant::now();
+        let rows = read_claude_usage_daily(8 * 60).expect("daily usage");
+        assert!(!rows.is_empty());
+        for row in rows.iter().rev().take(6) {
+            eprintln!("{} {} in={} cc={} cr={} out={} msgs={}", row.date, row.model,
+                row.input_tokens, row.cache_creation_tokens, row.cache_read_tokens, row.output_tokens, row.message_count);
+        }
+        eprintln!("rows={} elapsed={:?}", rows.len(), started.elapsed());
+    }
 
     #[test]
     #[ignore = "live check: needs a logged-in local Claude Code install and network access"]

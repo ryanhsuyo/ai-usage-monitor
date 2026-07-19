@@ -271,6 +271,14 @@ table.data tbody tr:hover td { background: #f7f9fa; }
 .chart-box { background: white; border: 1px solid #e0e4e7; border-radius: 11px; padding: 18px; }
 .chart-box svg { display: block; width: 100%; height: auto; }
 
+/* ---------- usage/cost statistics page ---------- */
+.stats-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.stats-summary > div { background: white; border: 1px solid #e0e4e7; border-radius: 11px; padding: 12px 14px; }
+.stats-summary small { display: block; font-size: 10px; font-weight: 700; color: #969ca2; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+.stats-summary strong { font-size: 16px; font-weight: 700; }
+.stats-model-row td { color: #7d848b; font-size: 12px; background: #fafbfc; }
+p.hint { font-size: 11px; color: #8a9198; }
+
 /* ---------- dark mode (follows the OS, spec §19) ---------- */
 @media (prefers-color-scheme: dark) {
   :root { color: #dde1e6; background: #14171c; }
@@ -330,4 +338,8 @@ table.data tbody tr:hover td { background: #f7f9fa; }
   .limit-threshold-field { border-color: #303840; color: #c0c7ce; }.limit-threshold-field strong { color: #e5e9ec; }.limit-threshold-field input { background: #14181d; border-color: #39434c; color: #eef2f5; }
   .discord-guide { background: #1b222c; border-color: #344052; color: #b3bbc6; }
   .discord-guide strong { color: #e0e5eb; }
+  .stats-summary > div { background: #1c2127; border-color: #2c333b; }
+  .stats-summary small { color: #7d8791; }
+  .stats-model-row td { background: #181d22; color: #98a1ab; }
+  p.hint { color: #8f98a2; }
 }
