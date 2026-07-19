@@ -308,6 +308,7 @@ function useBootstrap() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     let unwatchClaudeCache: (() => void) | undefined;
+    let unwatchLocalUsageActivity: (() => void) | undefined;
     let resetRefreshTimer: ReturnType<typeof setInterval> | undefined;
     const attemptedResetAnchors = new Set<string>();
 
@@ -412,6 +413,16 @@ function useBootstrap() {
             await updateTray();
           }
         })()).catch(() => undefined);
+
+        // Transcript/session files change while the user is actively using Claude or Codex.
+        // Refresh only that provider after the platform adapter has debounced the write burst.
+        unwatchLocalUsageActivity = await services.usageCacheWatcher.watchLocalUsageActivity((providerId) => void (async () => {
+          const inserted = await services.collectLocalUsage([providerId]).catch(() => 0);
+          if (inserted > 0 && !disposed) {
+            await refresh();
+            await updateTray();
+          }
+        })()).catch(() => undefined);
       }
 
       if (!disposed) setReady(true);
@@ -424,6 +435,7 @@ function useBootstrap() {
       disposed = true;
       unlisten?.();
       unwatchClaudeCache?.();
+      unwatchLocalUsageActivity?.();
       if (resetRefreshTimer) clearInterval(resetRefreshTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

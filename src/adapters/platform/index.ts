@@ -121,11 +121,47 @@ export function createTauriUsageCacheWatcher(): UsageCacheWatcher {
         if (event.paths.some((path) => path === target || path.endsWith("/.claude.json"))) onChange();
       }, { recursive: false, delayMs: 300 });
     },
+    async watchLocalUsageActivity(onChange) {
+      const [{ watch }, { homeDir, join }] = await Promise.all([
+        import("@tauri-apps/plugin-fs"),
+        import("@tauri-apps/api/path"),
+      ]);
+      const home = await homeDir();
+      const targets: Array<{ providerId: "claude" | "codex"; path: string }> = [
+        { providerId: "claude", path: await join(home, ".claude", "projects") },
+        { providerId: "codex", path: await join(home, ".codex", "sessions") },
+      ];
+      const unwatchers: Array<() => void> = [];
+      const timers = new Map<"claude" | "codex", ReturnType<typeof setTimeout>>();
+      for (const target of targets) {
+        try {
+          const unwatch = await watch(target.path, () => {
+            const previous = timers.get(target.providerId);
+            if (previous) clearTimeout(previous);
+            timers.set(target.providerId, setTimeout(() => {
+              timers.delete(target.providerId);
+              onChange(target.providerId);
+            }, 1_000));
+          }, { recursive: true, delayMs: 500 });
+          unwatchers.push(unwatch);
+        } catch {
+          // A provider may not be installed yet. The periodic collector remains the fallback.
+        }
+      }
+      return () => {
+        timers.forEach(clearTimeout);
+        timers.clear();
+        unwatchers.forEach((unwatch) => unwatch());
+      };
+    },
   };
 }
 
 export class InMemoryUsageCacheWatcher implements UsageCacheWatcher {
   async watchClaudeCache(): Promise<() => void> {
+    return () => undefined;
+  }
+  async watchLocalUsageActivity(): Promise<() => void> {
     return () => undefined;
   }
 }

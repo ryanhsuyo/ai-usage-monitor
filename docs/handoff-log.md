@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — UI 跟隨 Claude／Codex 活動檔案同步
+
+- 根因：原本只有監聽 `~/.claude.json` 官方快取；實際對話活動先寫入 Claude transcript／Codex session，因此官方快取不動時 UI 最久需等五分鐘排程。
+- 平台 Adapter 新增本機活動監聽，遞迴監聽 `~/.claude/projects` 與 `~/.codex/sessions`；500ms 檔案事件合併後再做 1 秒 provider 級 debounce，避免串流寫入反覆觸發。
+- 活動後只收集變動的 Provider；有新 snapshot 時立即刷新 UI 與 tray。既有五分鐘排程保留作為檔案監聽不可用或漏接時的 fallback。
+
 ## 2026-07-19 — Claude 舊額度不再顯示成即時數字
 
 - 實機確認 Claude Code 2.1.215 的 `/api/oauth/usage` 在隱藏 PTY 超過 30 秒仍未完成，且 `cachedUsageUtilization.fetchedAtMs` 停在 11:46；背景刷新不可視為成功。

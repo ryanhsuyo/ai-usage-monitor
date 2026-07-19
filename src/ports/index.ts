@@ -37,6 +37,7 @@ export interface BackgroundRuntime {
 
 export interface UsageCacheWatcher {
   watchClaudeCache(onChange: () => void): Promise<() => void>;
+  watchLocalUsageActivity(onChange: (providerId: "claude" | "codex") => void): Promise<() => void>;
 }
 
 export interface DiagnosticLogger {
