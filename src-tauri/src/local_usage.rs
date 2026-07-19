@@ -97,84 +97,116 @@ fn timestamp_unix(value: &str) -> Option<i64> {
     OffsetDateTime::parse(value, &Rfc3339).ok().map(|t| t.unix_timestamp())
 }
 
-static CLAUDE_USAGE_REFRESH: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+#[derive(Default)]
+struct ClaudeUsageFetchState {
+    last_attempt: Option<Instant>,
+    fresh: Option<(i64, Vec<Value>)>,
+}
 
-fn refresh_claude_usage_cache(home: &str, root: &Value, latest_activity_at: Option<&str>) {
-    let refresh = CLAUDE_USAGE_REFRESH.get_or_init(|| Mutex::new(None));
-    let Ok(mut last_attempt) = refresh.lock() else { return };
-    if last_attempt.as_ref().is_some_and(|at| at.elapsed() < Duration::from_secs(4 * 60)) { return; }
+static CLAUDE_USAGE_FETCH: OnceLock<Mutex<ClaudeUsageFetchState>> = OnceLock::new();
 
-    let fetched_ms = root.pointer("/cachedUsageUtilization/fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
+/// Ask Claude Code for live official usage through the stream-json control protocol
+/// (`get_usage`), which calls the provider's usage endpoint directly. This consumes no quota
+/// and needs no terminal emulation; only the returned limits are read, never credentials.
+fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> Option<Vec<Value>> {
+    let local = Path::new(home).join(".local/bin/claude");
+    let binary = if local.exists() { local } else { PathBuf::from("claude") };
+    let mut child = Command::new(binary)
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
+        .current_dir(cwd)
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .spawn().ok()?;
+    let mut stdin = child.stdin.take()?;
+    let stdout = child.stdout.take()?;
+    let request = r#"{"type":"control_request","request_id":"usage","request":{"subtype":"get_usage"}}"#;
+    if writeln!(stdin, "{request}").and_then(|_| stdin.flush()).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    let (sender, receiver) = std::sync::mpsc::channel::<Value>();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
+                    if value.get("type").and_then(Value::as_str) == Some("control_response") {
+                        let _ = sender.send(value);
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    let response = receiver.recv_timeout(Duration::from_secs(20)).ok();
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+    let response = response?;
+    if response.pointer("/response/subtype").and_then(Value::as_str) != Some("success") { return None; }
+    let limits = response.pointer("/response/response/rate_limits/limits")?.as_array()?.clone();
+    (!limits.is_empty()).then_some(limits)
+}
+
+fn refreshed_claude_limits(
+    home: &str,
+    root: &Value,
+    cached_fetched_ms: i64,
+    cached_limits: Option<&Vec<Value>>,
+    latest_activity_at: Option<&str>,
+) -> Option<(i64, Vec<Value>)> {
+    let state_lock = CLAUDE_USAGE_FETCH.get_or_init(|| Mutex::new(ClaudeUsageFetchState::default()));
+    let Ok(mut state) = state_lock.lock() else { return None };
+
+    // Prefer an in-process live fetch over the on-disk cache: Claude Code throttles its own
+    // cache-file writes, so a successful fetch can be newer than anything in ~/.claude.json.
+    let fresh_snapshot = state.fresh.clone();
+    let (fetched_ms, limits) = match &fresh_snapshot {
+        Some((fresh_ms, fresh_limits)) if *fresh_ms > cached_fetched_ms => (*fresh_ms, Some(fresh_limits)),
+        _ => (cached_fetched_ms, cached_limits),
+    };
     let now = OffsetDateTime::now_utc().unix_timestamp();
-    let now_ms = now as i128 * 1_000;
-    let limits = root.pointer("/cachedUsageUtilization/utilization/limits").and_then(Value::as_array);
+    let now_ms = now * 1_000;
     let reset_due = limits.is_some_and(|limits| limits.iter().any(|limit| {
-            limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
-                .is_some_and(|reset| reset <= now)
-        }));
+        limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
+            .is_some_and(|reset| reset <= now)
+    }));
     let full_waiting_for_reset = limits.is_some_and(|limits| limits.iter().any(|limit| {
         limit.get("percent").and_then(Value::as_f64).is_some_and(|percent| percent >= 99.5)
             && limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
                 .is_some_and(|reset| reset > now)
     }));
     let activity_newer_than_cache = latest_activity_at.and_then(timestamp_unix)
-        .is_some_and(|activity| activity as i128 * 1_000 > fetched_ms as i128 + 60_000);
-    let heartbeat_due = fetched_ms <= 0 || now_ms.saturating_sub(fetched_ms as i128) >= 30 * 60 * 1_000;
+        .is_some_and(|activity| activity * 1_000 > fetched_ms + 60_000);
+    let heartbeat_due = fetched_ms <= 0 || now_ms.saturating_sub(fetched_ms) >= 30 * 60 * 1_000;
+    let throttled = state.last_attempt.is_some_and(|at| at.elapsed() < Duration::from_secs(4 * 60));
 
     // A full quota cannot change before its advertised reset, so avoid pointless refreshes until
     // that boundary. Otherwise keep normal usage reasonably fresh after activity and via a
     // low-frequency heartbeat. A due reset always takes precedence and is confirmed immediately.
-    if !reset_due && full_waiting_for_reset { return; }
-    if !reset_due && !activity_newer_than_cache && !heartbeat_due { return; }
-
-    let trusted_dir = root.get("projects").and_then(Value::as_object).and_then(|projects| {
-        projects.iter().find_map(|(path, settings)| {
-            (settings.get("hasTrustDialogAccepted").and_then(Value::as_bool) == Some(true)
-                && Path::new(path).is_dir()).then(|| PathBuf::from(path))
-        })
-    });
-    let Some(trusted_dir) = trusted_dir else { return };
-    *last_attempt = Some(Instant::now());
-    drop(last_attempt);
-
-    let local = Path::new(home).join(".local/bin/claude");
-    let binary = if local.exists() { local } else { PathBuf::from("claude") };
-    let cache_path = Path::new(home).join(".claude.json");
-
-    // Run the real interactive `/usage` command in a hidden PTY, then wait for Claude itself to
-    // advance fetchedAtMs instead of cancelling after an arbitrary delay. `/status` alone only
-    // opens its Status tab and does not request usage until the Usage tab is selected.
-    // No terminal output, OAuth credential, prompt, or response is captured.
-    #[cfg(target_os = "macos")]
-    std::thread::spawn(move || {
-        use std::io::Write;
-        let Ok(mut child) = Command::new("/usr/bin/script")
-            .arg("-q").arg("/dev/null").arg(binary)
-            .current_dir(trusted_dir)
-            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null())
-            .spawn() else { return };
-        let Some(mut stdin) = child.stdin.take() else { let _ = child.kill(); return };
-        std::thread::sleep(Duration::from_secs(1));
-        let _ = stdin.write_all(b"/usage\r");
-        let _ = stdin.flush();
-
-        // Allow a slow provider response up to 45 seconds and stop as soon as the official cache
-        // actually changes. A four-minute outer throttle prevents retry storms during outages.
-        for _ in 0..90 {
-            std::thread::sleep(Duration::from_millis(500));
-            let updated = fs::read_to_string(&cache_path).ok()
-                .and_then(|body| serde_json::from_str::<Value>(&body).ok())
-                .and_then(|value| value.pointer("/cachedUsageUtilization/fetchedAtMs").and_then(Value::as_i64))
-                .is_some_and(|updated_ms| updated_ms > fetched_ms);
-            if updated { break; }
+    let refresh_due = if reset_due { true } else if full_waiting_for_reset { false } else { activity_newer_than_cache || heartbeat_due };
+    if refresh_due && !throttled {
+        let cwd = root.get("projects").and_then(Value::as_object).and_then(|projects| {
+            projects.iter().find_map(|(path, settings)| {
+                (settings.get("hasTrustDialogAccepted").and_then(Value::as_bool) == Some(true)
+                    && Path::new(path).is_dir()).then(|| PathBuf::from(path))
+            })
+        }).unwrap_or_else(|| PathBuf::from(home));
+        state.last_attempt = Some(Instant::now());
+        if let Some(fresh_limits) = fetch_claude_usage_via_cli(home, &cwd) {
+            let fresh_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000;
+            state.fresh = Some((fresh_ms, fresh_limits.clone()));
+            return Some((fresh_ms, fresh_limits));
         }
-        let _ = stdin.write_all(b"\x1b");
-        let _ = stdin.flush();
-        std::thread::sleep(Duration::from_secs(1));
-        let _ = stdin.write_all(b"\x03\x03");
-        drop(stdin);
-        let _ = child.wait();
-    });
+    }
+    match &state.fresh {
+        Some((fresh_ms, fresh_limits)) if *fresh_ms > cached_fetched_ms => Some((*fresh_ms, fresh_limits.clone())),
+        _ => None,
+    }
 }
 
 fn session_usage(path: &Path, cycle_start: i64) -> Option<(String, String, ModelUsage)> {
@@ -320,21 +352,25 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     let body = fs::read_to_string(Path::new(&home).join(".claude.json"))
         .map_err(|_| "找不到 Claude Code 本機設定".to_string())?;
     let root: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    let cached = root.get("cachedUsageUtilization")
-        .ok_or_else(|| "Claude Code 尚未快取 /usage 資料；請先執行一次 /usage".to_string())?;
-    let fetched_ms = cached.get("fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
-    let captured_at = OffsetDateTime::from_unix_timestamp_nanos(fetched_ms as i128 * 1_000_000)
-        .ok().and_then(|t| t.format(&Rfc3339).ok()).unwrap_or_default();
-    let limits = cached.pointer("/utilization/limits").and_then(Value::as_array)
-        .ok_or_else(|| "Claude Code /usage 快取沒有額度資料".to_string())?;
+    let cached_fetched_ms = root.pointer("/cachedUsageUtilization/fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
+    let cached_limits = root.pointer("/cachedUsageUtilization/utilization/limits")
+        .and_then(Value::as_array).cloned();
     let since = OffsetDateTime::now_utc().unix_timestamp() - 24 * 60 * 60;
     let (model_usage, session_count, transcript_captured_at) = claude_recent_usage(&home, since);
-    refresh_claude_usage_cache(&home, &root, transcript_captured_at.as_deref());
-    let quota_stale = transcript_captured_at.as_deref().and_then(timestamp_unix)
-        .is_some_and(|activity| activity * 1_000 > fetched_ms + 60_000);
-    // Quota freshness must remain the official /usage fetchedAt. Transcript activity only
+    let (fetched_ms, limits) = match refreshed_claude_limits(&home, &root, cached_fetched_ms, cached_limits.as_ref(), transcript_captured_at.as_deref()) {
+        Some((fresh_ms, fresh_limits)) => (fresh_ms, fresh_limits),
+        None => (cached_fetched_ms, cached_limits
+            .ok_or_else(|| "Claude Code 尚未快取 /usage 資料；請先執行一次 /usage".to_string())?),
+    };
+    let captured_at = OffsetDateTime::from_unix_timestamp_nanos(fetched_ms as i128 * 1_000_000)
+        .ok().and_then(|t| t.format(&Rfc3339).ok()).unwrap_or_default();
+    // Quota freshness must remain the official usage fetch time. Transcript activity only
     // enriches token/cost metadata; promoting its timestamp would make an old percentage look
-    // freshly confirmed even when Claude's usage cache did not update.
+    // freshly confirmed even when the official reading did not update. The reading is hidden as
+    // stale only once activity outruns the official quota by well over the refresh cadence,
+    // i.e. live refreshes have kept failing.
+    let quota_stale = transcript_captured_at.as_deref().and_then(timestamp_unix)
+        .is_some_and(|activity| activity * 1_000 > fetched_ms + 15 * 60 * 1_000);
     let input_tokens = model_usage.iter().map(|usage| usage.input_tokens).sum();
     let cached_input_tokens = model_usage.iter().map(|usage| usage.cache_read_tokens).sum();
     let output_tokens = model_usage.iter().map(|usage| usage.output_tokens).sum();
@@ -365,4 +401,21 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     }
     if readings.is_empty() { return Err("Claude Code /usage 快取沒有可用額度".into()); }
     Ok(readings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "live check: needs a logged-in local Claude Code install and network access"]
+    fn fetch_claude_usage_live() {
+        let home = std::env::var("HOME").expect("HOME");
+        let limits = fetch_claude_usage_via_cli(&home, Path::new(&home)).expect("live usage fetch");
+        assert!(limits.iter().any(|limit| {
+            limit.get("kind").and_then(Value::as_str).is_some()
+                && limit.get("percent").and_then(Value::as_f64).is_some()
+                && limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix).is_some()
+        }), "limits missing expected fields: {limits:?}");
+    }
 }
