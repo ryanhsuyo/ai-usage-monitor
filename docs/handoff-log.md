@@ -1,5 +1,11 @@
 # Handoff Log
 
+## 2026-07-19 — Claude 僅在 resetAt 到點確認
+
+- 移除 transcript 新活動觸發與每 30 分鐘 heartbeat；已有官方快取時，Adapter 平常完全不主動執行 Claude `/usage`。
+- 前端仍每 30 秒比對已知 resetAt；到點才啟動官方 `/usage` 確認，若提供商尚未更新則以 4 分鐘 throttle 重試。
+- 無 cachedUsageUtilization 的新安裝保留一次 bootstrap，避免永遠無法取得第一組 resetAt。
+
 ## 2026-07-19 — Claude resetAt 事件驅動確認
 
 - 沿用前端每 30 秒 reset boundary 檢查：官方 `resetAt` 到點後立即呼叫 Monitor，觸發真正 `/usage` 確認新週期。
