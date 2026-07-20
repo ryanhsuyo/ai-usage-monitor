@@ -108,9 +108,23 @@ static CLAUDE_USAGE_FETCH: OnceLock<Mutex<ClaudeUsageFetchState>> = OnceLock::ne
 /// Ask Claude Code for live official usage through the stream-json control protocol
 /// (`get_usage`), which calls the provider's usage endpoint directly. This consumes no quota
 /// and needs no terminal emulation; only the returned limits are read, never credentials.
+/// Locate the Claude Code binary. A GUI app's PATH only carries system directories, so probe the
+/// common install locations (native installer, Homebrew, npm global) before falling back to PATH.
+fn claude_binary(home: &str) -> PathBuf {
+    let candidates = [
+        Path::new(home).join(".local/bin/claude"),
+        PathBuf::from("/opt/homebrew/bin/claude"),
+        PathBuf::from("/usr/local/bin/claude"),
+        Path::new(home).join(".npm-global/bin/claude"),
+    ];
+    for candidate in candidates {
+        if candidate.exists() { return candidate; }
+    }
+    PathBuf::from("claude")
+}
+
 fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> Option<Vec<Value>> {
-    let local = Path::new(home).join(".local/bin/claude");
-    let binary = if local.exists() { local } else { PathBuf::from("claude") };
+    let binary = claude_binary(home);
     let mut child = Command::new(binary)
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
         .current_dir(cwd)
@@ -152,6 +166,14 @@ fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> Option<Vec<Value>> {
     (!limits.is_empty()).then_some(limits)
 }
 
+fn all_full_waiting_for_reset(limits: &[Value], now: i64) -> bool {
+    !limits.is_empty() && limits.iter().all(|limit| {
+        limit.get("percent").and_then(Value::as_f64).is_some_and(|percent| percent >= 99.5)
+            && limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
+                .is_some_and(|reset| reset > now)
+    })
+}
+
 fn refreshed_claude_limits(
     home: &str,
     root: &Value,
@@ -175,11 +197,9 @@ fn refreshed_claude_limits(
         limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
             .is_some_and(|reset| reset <= now)
     }));
-    let full_waiting_for_reset = limits.is_some_and(|limits| limits.iter().any(|limit| {
-        limit.get("percent").and_then(Value::as_f64).is_some_and(|percent| percent >= 99.5)
-            && limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix)
-                .is_some_and(|reset| reset > now)
-    }));
+    // Refresh pauses only when EVERY limit is full and waiting on a future reset — nothing can
+    // change until then. A single full limit must not pause refresh: the other limits keep moving.
+    let full_waiting_for_reset = limits.is_some_and(|limits| all_full_waiting_for_reset(limits, now));
     let activity_newer_than_cache = latest_activity_at.and_then(timestamp_unix)
         .is_some_and(|activity| activity * 1_000 > fetched_ms + 60_000);
     let heartbeat_due = fetched_ms <= 0 || now_ms.saturating_sub(fetched_ms) >= 30 * 60 * 1_000;
@@ -432,8 +452,10 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     // enriches token/cost metadata; promoting its timestamp would make an old percentage look
     // freshly confirmed even when the official reading did not update. The reading is hidden as
     // stale only once activity outruns the official quota by well over the refresh cadence,
-    // i.e. live refreshes have kept failing.
-    let quota_stale = transcript_captured_at.as_deref().and_then(timestamp_unix)
+    // i.e. live refreshes have kept failing. Exception: when every limit is full and waiting on
+    // its reset, refresh is deliberately paused and the (100%) reading is still exact — keep it.
+    let all_full = all_full_waiting_for_reset(&limits, OffsetDateTime::now_utc().unix_timestamp());
+    let quota_stale = !all_full && transcript_captured_at.as_deref().and_then(timestamp_unix)
         .is_some_and(|activity| activity * 1_000 > fetched_ms + 15 * 60 * 1_000);
     let input_tokens = model_usage.iter().map(|usage| usage.input_tokens).sum();
     let cached_input_tokens = model_usage.iter().map(|usage| usage.cache_read_tokens).sum();

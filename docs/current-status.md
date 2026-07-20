@@ -2,8 +2,8 @@
 
 > 後續 Agent：先讀這份，再執行 `git status`，然後看 `docs/handoff-log.md`。
 
-**日期**：2026-07-17
-**版本**：0.2.0（Phase 0 + Phase 1 + Phase 1.5 + Phase 2 本機額度整合）
+**日期**：2026-07-20
+**版本**：0.3.0（Phase 2 本機額度整合＋成本統計）
 
 ## 狀態總覽
 
@@ -11,7 +11,7 @@
 |---|---|
 | `pnpm typecheck` | ✅ 0 errors（TS strict） |
 | `pnpm lint` | ✅ 0 errors / 0 warnings |
-| `pnpm test` | ✅ 148/148（18 檔） |
+| `pnpm test` | ✅ 172/172（20 檔） |
 | `pnpm tauri build` | ✅ `.app` + `.dmg`（unsigned） |
 | Rust `cargo check` | ✅ |
 
@@ -90,6 +90,7 @@
 - macOS 無邊框 compact 視窗在最小化前會明確恢復原生 miniaturizable 能力；極簡／小工具切換圖示改為 `▬`／`▦`，避免與 Dock 收起混淆
 - 四顆視窗控制改用一致線框 SVG，分別具象呈現「視窗進 Dock、卡片壓成橫條／展開、圖釘、浮動小視窗／四角展開」，不再依賴難辨識的 Unicode 符號
 - 視窗控制收斂到 Lucide 常見語彙：最小化採標準 Minus，另使用 Panel 收合／展開、Pin、Picture-in-Picture 與 Maximize；避免自創「視窗進 Dock」圖在 15px 下難以辨識
+- 0.3.0 發版掃描修正：成本統計表格 Fragment 補 key；「額度滿暫停刷新」改為全部滿才暫停（單一模型滿不再凍結其他額度），全滿等重置期間不再把已知的 100% 標成 stale；`claude` 執行檔改多路徑探測（native/Homebrew/npm global）；同一官方讀值的純 token metadata 變化最多 10 分鐘寫一次快照，停止歷史灌水
 - 文件全套（README、AGENTS、docs/*）
 
 ## 未完成（Roadmap）

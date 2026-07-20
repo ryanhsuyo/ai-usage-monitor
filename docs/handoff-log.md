@@ -1,5 +1,16 @@
 # Handoff Log
 
+## 2026-07-20 — 0.3.0 發版前掃描與修正
+
+- 發版前全面掃描今日三個 commit 與先前懸置項，修正四件事：
+  1. 成本統計表格 `periods.map` 的 Fragment 沒有 key（React 列表警告＋重繪風險）→ `<Fragment key>`。
+  2. 滿額邏輯：原「任一額度 ≥99.5% 即暫停刷新」會凍結其他額度數字，且暫停期間 15 分鐘後 stale 判定把已知的 100% 藏成「等待官方更新」→ 改為**全部**額度滿才暫停，全滿等重置期間不標 stale。
+  3. `claude` 執行檔只找 `~/.local/bin`＋PATH（GUI App 的 PATH 無使用者目錄）→ 依序探測 native installer／Homebrew／npm global。
+  4. 快照灌水：24h 滾動 token metadata 每次收集都在變，note 比對永遠「有變化」導致同值快照重複寫入（實測單秒 ×24、三天 1000 筆）→ 新增 `isDeferrableMetadataRefresh`：同一官方讀值（percent/resetAt/stale flag 不變）的純 metadata 更新最多 10 分鐘一次；官方數值或 stale flag 變化永不延遲。含 6 個新測試。
+- 版本升 0.3.0（package.json／tauri.conf.json／Cargo.toml／APP_VERSION）。
+- 驗收：typecheck／lint／172 tests（20 檔）／cargo check／兩個 live 測試／tauri build 全綠。
+- 已知未修（低風險，記錄備查）：get_usage 失敗時 20 秒 timeout 內持鎖；換帳號後行程內 fresh 快取可能沿用數分鐘；Keychain 遷移按「拒絕」不會被記住，會於下次送通知時再詢問。
+
 ## 2026-07-19 — ccusage 風格成本統計頁
 
 - 需求：像 `npx ccusage daily/weekly/monthly` 一樣看見「到底花了多少」。

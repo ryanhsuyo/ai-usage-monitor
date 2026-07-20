@@ -1,4 +1,4 @@
-import { buildClaudeMetadata, buildCodexMetadata, type LocalUsageReading } from "./localUsageCollector";
+import { buildClaudeMetadata, buildCodexMetadata, isDeferrableMetadataRefresh, type LocalUsageReading } from "./localUsageCollector";
 import { settingStripRightInfo, settingStripSize } from "./settingsKeys";
 
 function reading(overrides: Partial<LocalUsageReading> = {}): LocalUsageReading {
@@ -57,6 +57,39 @@ describe("Claude local usage metadata", () => {
     }));
     expect(meta.quotaStale).toBe(true);
     expect(meta.quotaCapturedAt).toBe("2026-07-19T03:46:02Z");
+  });
+});
+
+describe("isDeferrableMetadataRefresh", () => {
+  const latest = {
+    usedPercent: 20,
+    resetAt: "2027-01-15T00:00:00.000Z",
+    note: 'AUTO:{"kind":"claude-local-24h","quotaStale":false}',
+    capturedAt: "2026-07-19T12:00:00Z",
+  };
+  const claudeReading = { providerId: "claude" as const, usedPercent: 20, quotaStale: false };
+
+  it("defers a metadata-only change within the 10-minute window", () => {
+    expect(isDeferrableMetadataRefresh(latest, claudeReading, latest.resetAt, "2026-07-19T12:05:00Z")).toBe(true);
+  });
+
+  it("writes again once the window has passed", () => {
+    expect(isDeferrableMetadataRefresh(latest, claudeReading, latest.resetAt, "2026-07-19T12:10:01Z")).toBe(false);
+  });
+
+  it("never defers official reading changes", () => {
+    expect(isDeferrableMetadataRefresh(latest, { ...claudeReading, usedPercent: 21 }, latest.resetAt, "2026-07-19T12:05:00Z")).toBe(false);
+    expect(isDeferrableMetadataRefresh(latest, claudeReading, "2027-01-16T00:00:00.000Z", "2026-07-19T12:05:00Z")).toBe(false);
+    expect(isDeferrableMetadataRefresh(undefined, claudeReading, latest.resetAt, "2026-07-19T12:05:00Z")).toBe(false);
+  });
+
+  it("never defers a Claude stale-flag flip", () => {
+    expect(isDeferrableMetadataRefresh(latest, { ...claudeReading, quotaStale: true }, latest.resetAt, "2026-07-19T12:05:00Z")).toBe(false);
+  });
+
+  it("applies the window to Codex readings without a stale flag", () => {
+    const codexLatest = { ...latest, note: 'AUTO:{"kind":"codex-local"}' };
+    expect(isDeferrableMetadataRefresh(codexLatest, { providerId: "codex", usedPercent: 20 }, latest.resetAt, "2026-07-19T12:05:00Z")).toBe(true);
   });
 });
 

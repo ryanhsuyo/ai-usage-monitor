@@ -57,7 +57,7 @@ import {
 import { SETTINGS_KEYS, settingBool } from "@/services/settingsKeys";
 import { createLocalUsageCollector } from "@/services/localUsageCollector";
 
-export const APP_VERSION = "0.2.0";
+export const APP_VERSION = "0.3.0";
 
 export type AppServices = {
   isTauri: boolean;

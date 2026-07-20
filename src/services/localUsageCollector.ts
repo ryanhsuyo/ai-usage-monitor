@@ -31,6 +31,27 @@ export function buildClaudeMetadata(reading: LocalUsageReading) {
   return { kind: "claude-local-24h", period: "rolling-24-hours", sessionCount: reading.sessionCount, models: reading.modelUsage, inputTokens: reading.inputTokens, cachedInputTokens: reading.cachedInputTokens, outputTokens: reading.outputTokens, quotaStale: reading.quotaStale ?? false, quotaCapturedAt: reading.quotaCapturedAt ?? reading.capturedAt };
 }
 
+// Rolling token metadata (24h window) drifts on every collection, so a "changed note" alone must
+// not insert a new snapshot each time — that floods the history with identical official readings.
+const METADATA_REFRESH_MIN_MS = 10 * 60 * 1000;
+
+/**
+ * True when the only difference against the latest stored snapshot is volatile token metadata
+ * (same official percent/reset/stale flag) and the last write is recent enough to skip.
+ */
+export function isDeferrableMetadataRefresh(
+  latest: { usedPercent: number; resetAt?: string; note?: string; capturedAt: string } | undefined,
+  reading: Pick<LocalUsageReading, "providerId" | "usedPercent" | "quotaStale">,
+  resetAt: string | undefined,
+  nowIso: string
+): boolean {
+  if (!latest) return false;
+  if (latest.usedPercent !== reading.usedPercent || latest.resetAt !== resetAt) return false;
+  if (reading.providerId === "claude"
+    && latest.note?.includes(`"quotaStale":${reading.quotaStale === true}`) !== true) return false;
+  return Date.parse(nowIso) - Date.parse(latest.capturedAt) < METADATA_REFRESH_MIN_MS;
+}
+
 let collectorInFlight: Promise<number> | undefined;
 
 export function createLocalUsageCollector(
@@ -132,6 +153,7 @@ export function createLocalUsageCollector(
         && latest.resetAt === resetAt
         && latest.note === note;
       if (sameReading) continue;
+      if (isDeferrableMetadataRefresh(latest, reading, resetAt, now)) continue;
 
       // A collector upgrade can enrich an otherwise unchanged provider reading. Give that
       // one-time metadata upgrade a deterministic newer key so latestValidByLimit selects it;

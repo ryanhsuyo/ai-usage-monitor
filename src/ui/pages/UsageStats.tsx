@@ -1,7 +1,7 @@
 // ccusage-style cost statistics: full local Claude Code transcript history aggregated into
 // daily / weekly / monthly periods with per-model token counts and API-equivalent USD.
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { aggregateClaudeUsage, summarizeUsagePeriods, type DailyModelUsage, type PeriodGranularity } from "@/domain/usageStats";
 import { EmptyState } from "../components/atoms";
 
@@ -120,8 +120,8 @@ export function UsageStatsPage() {
               </thead>
               <tbody>
                 {periods.map((period) => (
-                  <>
-                    <tr key={period.period} className="stats-period-row">
+                  <Fragment key={period.period}>
+                    <tr className="stats-period-row">
                       <td><strong>{periodLabel(period.period, granularity)}</strong></td>
                       <td>{period.models.length > 1 ? `${period.models.length} 個模型` : modelLabel(period.models[0]!.model)}</td>
                       <td>{tokens(period.inputTokens)}</td>
@@ -143,7 +143,7 @@ export function UsageStatsPage() {
                         <td>{cost(model.cost)}</td>
                       </tr>
                     ))}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

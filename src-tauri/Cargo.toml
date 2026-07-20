@@ -1,6 +1,6 @@
 [package]
 name = "ai-usage-monitor"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first AI subscription usage monitor"
 authors = ["ai-usage-monitor"]
 edition = "2021"
