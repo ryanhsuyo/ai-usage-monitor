@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NOTIFICATION } from "./constants";
-import { alreadyDelivered, buildEventKey, shouldSend } from "./dedup";
+import { alreadyDelivered, buildEventKey, isSameCycleEvent, shouldSend } from "./dedup";
 import { evaluateNotificationEvents } from "./notificationEvents";
 import { backoffForAttempt, decideRetry } from "./retry";
 import { isInQuietHours, isQuietAt, passesMinInterval } from "./quietHours";
@@ -45,6 +45,40 @@ describe("notification dedup (spec §9 / §20 cases 19,20,21)", () => {
   it("a failed delivery does not block a retry-send", () => {
     const failed = [delivery({ status: "failed" })];
     expect(shouldSend(failed[0]!.eventKey, "ch-1", failed)).toBe(true);
+  });
+
+  it("rounds the anchor so a provider restating the same reset cannot mint a new key", () => {
+    const key = (anchorIso: string) =>
+      buildEventKey({ providerId: "codex", limitKey: "weekly:lim-0c36", eventType: "exhaustion_forecast", anchorIso });
+    // Observed drift between polls: the same weekly reset reported one second apart.
+    expect(key("2026-07-25T16:02:16.000Z")).toBe(key("2026-07-25T16:02:17.000Z"));
+    // …and across a minute boundary, which plain truncation would have split.
+    expect(key("2026-07-20T06:09:59.000Z")).toBe(key("2026-07-20T06:10:00.000Z"));
+  });
+
+  it("does not resend when only the anchor drifted within one cycle", () => {
+    const sent = [
+      delivery({ eventKey: "codex:weekly:lim-0c36:exhaustion_forecast:2026-07-25T16:02:16.000Z" }),
+    ];
+    const drifted = "codex:weekly:lim-0c36:exhaustion_forecast:2026-07-25T16:20:00.000Z";
+    expect(isSameCycleEvent(drifted, sent[0]!.eventKey)).toBe(true);
+    expect(shouldSend(drifted, "ch-1", sent)).toBe(false);
+  });
+
+  it("still sends once the anchor moves to a genuinely new cycle", () => {
+    const sent = [
+      delivery({ eventKey: "codex:weekly:lim-0c36:exhaustion_forecast:2026-07-25T16:02:16.000Z" }),
+    ];
+    const nextCycle = "codex:weekly:lim-0c36:exhaustion_forecast:2026-08-01T16:02:16.000Z";
+    expect(isSameCycleEvent(nextCycle, sent[0]!.eventKey)).toBe(false);
+    expect(shouldSend(nextCycle, "ch-1", sent)).toBe(true);
+  });
+
+  it("keeps different limits and event types apart regardless of anchor proximity", () => {
+    const anchor = "2026-07-25T16:02:16.000Z";
+    expect(isSameCycleEvent(`codex:weekly:lim-a:usage_warning:${anchor}`, `codex:weekly:lim-a:exhaustion_forecast:${anchor}`)).toBe(false);
+    expect(isSameCycleEvent(`codex:weekly:lim-a:usage_warning:${anchor}`, `codex:weekly:lim-b:usage_warning:${anchor}`)).toBe(false);
+    expect(isSameCycleEvent(`claude:weekly:lim-a:usage_warning:${anchor}`, `codex:weekly:lim-a:usage_warning:${anchor}`)).toBe(false);
   });
 });
 
@@ -208,6 +242,32 @@ describe("notification event generation (spec §9)", () => {
     expect(e).toBeDefined();
     expect(e!.body).toMatch(/預估|可能|依目前/);
     expect(e!.severity).toBe("warning");
+  });
+
+  it("stops forecasting exhaustion once the quota is actually spent", () => {
+    const spentForecast = {
+      ...baseCtx,
+      nextResetAt: at(140),
+      remainingPercent: 0,
+      forecast: {
+        limitId: "limit-1",
+        calculatedAt: at(10),
+        estimatedExhaustionAt: at(10), // "about 0 hours from now" — it already ran out
+        willExhaustBeforeReset: true,
+        confidence: 0.8,
+        sampleCount: 5,
+        warnings: [],
+      },
+    };
+    const events = evaluateNotificationEvents(spentForecast);
+    expect(events.some((x) => x.eventType === "exhaustion_forecast")).toBe(false);
+    // The user is still told once per cycle that the quota is gone.
+    expect(events.some((x) => x.eventType === "usage_warning")).toBe(true);
+    // Still forecast while there is meaningful quota left.
+    expect(
+      evaluateNotificationEvents({ ...spentForecast, remainingPercent: 12 })
+        .some((x) => x.eventType === "exhaustion_forecast")
+    ).toBe(true);
   });
 
   it("emits usage_warning at the remaining threshold", () => {

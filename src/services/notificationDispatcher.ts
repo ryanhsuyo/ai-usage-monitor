@@ -17,6 +17,12 @@ import type {
 import type { NotificationChannelAdapter, NotificationRepository, SecretStore } from "@/ports";
 import { newId, nowIso } from "./ids";
 
+/**
+ * How far back dedup looks for a prior delivery. Comfortably longer than the longest cycle
+ * (weekly), so a repeat within the same cycle is always found while the query stays bounded.
+ */
+const DEDUP_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+
 export type DispatchSummary = {
   eventsPersisted: number;
   sent: number;
@@ -148,10 +154,12 @@ export function createNotificationDispatcher(deps: DispatcherDeps) {
           // per-channel event preference
           if (!isChannelNotificationEventEnabled(channel.eventPreferences, event.eventType)) continue;
 
-          // dedup: never resend a successfully-sent (eventKey, channel)
+          // Dedup: never resend a successfully-sent (event, channel) for the same cycle. The
+          // lookup is per channel rather than per exact key so a provider timestamp that drifted
+          // between polls still matches its earlier delivery (see isSameCycleEvent).
           const deliveries = await deps.repo.listDeliveries({
-            eventKey: event.eventKey,
             channelId: channel.id,
+            attemptedSince: new Date(Date.parse(now()) - DEDUP_LOOKBACK_MS).toISOString(),
           });
           if (!shouldSend(event.eventKey, channel.id, deliveries)) continue;
 

@@ -78,6 +78,13 @@ export const NOTIFICATION = {
   BACKOFF_BASE_MS: 30_000,
   BACKOFF_MAX_MS: 15 * 60_000,
   DEFAULT_MIN_INTERVAL_MINUTES: 0,
+  /**
+   * Providers report the same reset moment with sub-second drift between polls, so two anchors
+   * this close describe one cycle. Dedup treats them as equal; real cycles are hours apart.
+   */
+  CYCLE_ANCHOR_TOLERANCE_MS: 30 * 60 * 1000,
+  /** At or below this remaining share the quota is spent — forecasting exhaustion is moot. */
+  EXHAUSTED_REMAINING_PERCENT: 1,
 } as const;
 
 export const SCHEDULER = {

@@ -4,7 +4,7 @@
 // with STABLE dedup keys. All predictive copy uses hedged wording ("預估 / 可能 / 依目前資料") and
 // never claims an official guarantee.
 
-import { THRESHOLDS } from "./constants";
+import { NOTIFICATION, THRESHOLDS } from "./constants";
 import { buildEventKey } from "./dedup";
 import type { ResetDetectionOutcome } from "./resetDetection";
 import type {
@@ -179,7 +179,12 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
   }
 
   // --- Exhaustion forecast ---
-  if (ctx.forecast?.willExhaustBeforeReset === true && ctx.forecast.estimatedExhaustionAt) {
+  // Skipped once the quota is actually spent: "may run out before reset" is not news at 0%
+  // remaining, and the usage warning already covers that state once per cycle.
+  const exhausted =
+    ctx.remainingPercent !== undefined &&
+    ctx.remainingPercent <= NOTIFICATION.EXHAUSTED_REMAINING_PERCENT;
+  if (!exhausted && ctx.forecast?.willExhaustBeforeReset === true && ctx.forecast.estimatedExhaustionAt) {
     const hoursToExhaust = Math.max(0, hoursBetween(ctx.now, ctx.forecast.estimatedExhaustionAt));
     const hoursToReset = ctx.nextResetAt ? Math.max(0, hoursBetween(ctx.now, ctx.nextResetAt)) : undefined;
     out.push({

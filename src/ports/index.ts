@@ -144,7 +144,12 @@ export interface NotificationRepository {
   findEventByKey(eventKey: string): Promise<NotificationEvent | undefined>;
   insertDelivery(delivery: NotificationDelivery): Promise<void>;
   updateDelivery(delivery: NotificationDelivery): Promise<void>;
-  listDeliveries(opts?: { eventKey?: string; channelId?: string }): Promise<NotificationDelivery[]>;
+  listDeliveries(opts?: {
+    eventKey?: string;
+    channelId?: string;
+    /** Only deliveries attempted at/after this ISO time — bounds dedup lookups to recent cycles. */
+    attemptedSince?: string;
+  }): Promise<NotificationDelivery[]>;
   lastSentAtForChannel(channelId: string): Promise<string | undefined>;
 }
 

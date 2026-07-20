@@ -1,5 +1,16 @@
 # Handoff Log
 
+## 2026-07-20 — 耗盡額度不再重複轟炸通知
+
+- 使用者回報同一組「可能在重置前用完／即將用完」每輪都重發。查 `notification_deliveries` 找到真因：event key 尾端的重置時間在兩次輪詢間差 **1 秒**（`…16:02:16.000Z` vs `…16:02:17.000Z`），去重是字串完全比對，於是每次都被當成全新事件。
+- 兩層修正：
+  1. `buildEventKey` 以 `stableAnchor` 把錨點四捨五入到分鐘，止住 key churn（也不再灌爆 `notification_events`）。
+  2. `isSameCycleEvent`：錨點相差在 `CYCLE_ANCHOR_TOLERANCE_MS`（30 分）內即視為同一週期，徹底免疫量化邊界翻轉。dispatcher 改以「管道 + 近 30 天」查詢既有 delivery 再做容差比對（`listDeliveries` 新增 `attemptedSince` 以限制掃描量）。
+- 額外語意修正：`remainingPercent` ≤ `EXHAUSTED_REMAINING_PERCENT`（1%）時不再送 exhaustion_forecast——額度都用完了還說「預估 0 小時後耗盡」毫無意義；該週期的 usage_warning 仍會發一次。
+- **解析陷阱（差點漏掉）**：真實 key 是 `codex:weekly:lim-0c36:exhaustion_forecast:…`，limitKey 自身含冒號，最初「取前三段」的解法在單元測試（簡化 key）中會過但實機完全無效。改為從右側正則抓取尾端 ISO，並把測試 key 全面換成含 limit id 的真實格式。
+- 以 7/19 起真實 delivery 紀錄回放驗證：重複的一律被擋下，其餘照常送出（session/weekly 的 forecast 與 warning 各佔大宗）。
+- 驗收：typecheck／lint／188 tests／tauri build 全綠。
+
 ## 2026-07-20 — 靜音時間輸入寬鬆化
 
 - 使用者回報靜音欄位必須手打冒號，希望離開欄位時自動補完。

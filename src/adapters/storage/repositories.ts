@@ -562,6 +562,10 @@ export function createNotificationRepository(db: SqlDatabase): NotificationRepos
         clauses.push("channel_id = ?");
         params.push(opts.channelId);
       }
+      if (opts?.attemptedSince) {
+        clauses.push("attempted_at >= ?");
+        params.push(opts.attemptedSince);
+      }
       const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
       const rows = await db.select<Row>(
         `SELECT * FROM notification_deliveries${where} ORDER BY attempted_at DESC`,
