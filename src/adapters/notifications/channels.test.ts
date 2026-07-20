@@ -98,7 +98,7 @@ describe("channel adapters (spec §9)", () => {
     );
     expect(res.ok).toBe(true);
     expect(http.calls[0]!.url).toContain("discord.com");
-    expect((http.calls[0]!.body as { embeds: Array<{ title: string }> }).embeds[0]?.title).toContain("測試通知");
+    expect((http.calls[0]!.body as { content: string }).content).toContain("測試通知");
   });
 
   it("discord: missing/foreign webhook is rejected before any network call", async () => {
@@ -119,27 +119,26 @@ describe("channel adapters (spec §9)", () => {
     expect(http.calls).toHaveLength(0);
   });
 
-  it("discord: sends a product embed and disables mentions", async () => {
+  it("discord: sends readable text and disables mentions", async () => {
     const http = fakeHttp({ status: 204, ok: true });
     const adapter = createDiscordAdapter(http);
     await adapter.send(config(), { secret: "https://discord.com/api/webhooks/1/token" }, { title: "額度提醒", body: "剩餘 10%", severity: "warning" });
     expect(http.calls[0]?.body).toMatchObject({
       username: "AI Usage Monitor",
+      content: "**⚠️ 額度提醒**\n剩餘 10%",
       allowed_mentions: { parse: [] },
-      embeds: [{ title: "⚠️ 額度提醒", description: "剩餘 10%", color: 0xd49a3a }],
     });
   });
 
-  it("discord: renders the message once — no plain-text copy alongside the embed", async () => {
+  it("discord: renders exactly once, and never as an embed a client can drop", async () => {
     const http = fakeHttp({ status: 204, ok: true });
     const adapter = createDiscordAdapter(http);
     await adapter.send(config(), { secret: "https://discord.com/api/webhooks/1/token" }, MESSAGE);
-    const body = http.calls[0]?.body as { content?: string; embeds: Array<{ title: string; description: string }> };
-    // A `content` duplicate makes clients that do render embeds show the same text twice.
-    expect(body.content ?? "").toBe("");
-    expect(body.embeds).toHaveLength(1);
-    expect(body.embeds[0]!.title).toContain("測試通知");
-    expect(body.embeds[0]!.description).toBe("這是一則測試訊息。");
+    const body = http.calls[0]?.body as { content?: string; embeds?: unknown[] };
+    // An embed that a client declines to render arrives as a completely empty message; a
+    // `content` copy alongside one shows the same words twice. Text alone satisfies both.
+    expect(body.embeds).toBeUndefined();
+    expect(body.content).toBe("**ℹ️ 測試通知**\n這是一則測試訊息。");
   });
 
   it("failure responses carry an error code and NEVER leak the secret", async () => {

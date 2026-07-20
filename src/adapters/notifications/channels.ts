@@ -33,25 +33,16 @@ function plainText(message: NotificationMessage): string {
   return `${SEVERITY_PREFIX[message.severity]} ${message.title}\n${message.body}`;
 }
 
-const DISCORD_COLORS: Record<NotificationMessage["severity"], number> = {
-  info: 0x2b9b8f,
-  warning: 0xd49a3a,
-  critical: 0xd6554d,
-};
-
 function discordPayload(message: NotificationMessage) {
+  // Plain text, exactly once. An embed carries severity colour and a footer, but a client that
+  // declines to render it leaves a completely empty message — observed in the wild, and worse
+  // than plain text. Sending both (the earlier attempt at a safety net) shows the same words
+  // twice wherever embeds *do* render. Text always renders, and the severity glyph carries the
+  // urgency the colour used to.
+  const content = `**${SEVERITY_PREFIX[message.severity]} ${message.title}**\n${message.body}`;
   return {
     username: "AI Usage Monitor",
-    // The embed is the only rendering of the message. It previously also went out as plain
-    // `content` in case a client failed to render embeds, but clients that do render them
-    // then show the same text twice — one notification must look like one notification.
-    embeds: [{
-      title: `${SEVERITY_PREFIX[message.severity]} ${message.title}`,
-      description: message.body.slice(0, 4096),
-      color: DISCORD_COLORS[message.severity],
-      footer: { text: "AI Usage Monitor · Local Monitor" },
-      timestamp: nowIso(),
-    }],
+    content: content.slice(0, 2000),
     allowed_mentions: { parse: [] },
   };
 }
