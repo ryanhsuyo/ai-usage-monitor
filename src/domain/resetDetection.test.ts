@@ -82,6 +82,20 @@ describe("reset detection (spec §11 / §20 cases 4,5,12)", () => {
     expect(resetAtAdvancedBetween("2026-07-20T00:00:00Z", "2026-07-19T19:00:00Z")).toBe(false); // went backwards
   });
 
+  it("does not re-detect a reset half an hour into the new cycle (real 7/20 session trace)", () => {
+    // The session reset at 06:10 (95% → 0%). Half an hour later usage was quietly climbing,
+    // but two consecutive live fetches restated resets_at one second apart — which used to
+    // register as a fresh reset and pushed "額度可能臨時／提前重置，目前已使用 4%".
+    const out = detectReset({
+      previous: snap({ usedPercent: 3, capturedAt: "2026-07-20T06:31:45Z", resetAt: "2026-07-20T11:09:59Z" }),
+      current: snap({ usedPercent: 4, capturedAt: "2026-07-20T06:36:00Z", resetAt: "2026-07-20T11:10:00Z" }),
+      now: "2026-07-20T06:40:52Z",
+      expectedResetAt: "2026-07-20T11:09:59Z",
+      resetAtAdvanced: resetAtAdvancedBetween("2026-07-20T11:09:59Z", "2026-07-20T11:10:00Z"),
+    });
+    expect(out.kind).toBe("none");
+  });
+
   it("case 12: expected reset time reached without confirming data → 'expected', never 'confirmed'", () => {
     const out = detectReset({
       previous: snap({ usedPercent: 70, capturedAt: at(0) }),
