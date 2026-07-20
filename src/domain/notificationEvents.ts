@@ -139,6 +139,10 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
 
   // --- Reset confirmed ---
   if (ctx.resetOutcome?.kind === "confirmed") {
+    // A reset at (or after) its expected time is routine; "臨時／提前" is reserved for a reset
+    // that arrives BEFORE the expected boundary.
+    const expectedIso = ctx.resetOutcome.expectedResetAt;
+    const early = Boolean(expectedIso && Date.parse(ctx.now) < Date.parse(expectedIso));
     out.push({
       ...base,
       eventType: "reset_confirmed",
@@ -148,8 +152,9 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
         eventType: "reset_confirmed",
         anchorIso: anchorReset,
       }),
-      title: `${ctx.providerLabel} 額度可能臨時／提前重置`,
+      title: early ? `${ctx.providerLabel} 額度可能臨時／提前重置` : `${ctx.providerLabel} 額度已重置`,
       body:
+        (early ? "" : "新週期已開始。\n") +
         `目前已使用 ${Math.round(ctx.currentUsedPercent ?? 0)}%。` +
         (ctx.nextResetAt ? `\n新的預計重置時間為 ${formatLocal(ctx.nextResetAt)}。` : ""),
       severity: "info",

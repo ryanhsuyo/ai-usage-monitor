@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectReset } from "./resetDetection";
+import { detectReset, resetAtAdvancedBetween } from "./resetDetection";
 import { at, snap } from "./testFixtures";
 
 describe("reset detection (spec §11 / §20 cases 4,5,12)", () => {
@@ -58,6 +58,28 @@ describe("reset detection (spec §11 / §20 cases 4,5,12)", () => {
     });
     expect(out.kind).toBe("confirmed");
     expect(out.method).toBe("confirmed_by_reset_change");
+  });
+
+  it("confirms via advanced resetAt even when the new cycle already re-accumulated usage", () => {
+    // App slept across the boundary; first fresh reading is 34% in the NEW cycle.
+    const out = detectReset({
+      previous: snap({ usedPercent: 80, capturedAt: at(0) }),
+      current: snap({ usedPercent: 34, capturedAt: at(8) }),
+      now: at(8),
+      expectedResetAt: at(5),
+      resetAtAdvanced: true,
+    });
+    expect(out.kind).toBe("confirmed");
+    expect(out.method).toBe("confirmed_by_reset_change");
+    expect(out.confidence).toBeCloseTo(0.7, 5);
+    expect(out.reasons.join()).toContain("34%");
+  });
+
+  it("resetAtAdvancedBetween ignores sub-second provider jitter but accepts a real cycle change", () => {
+    expect(resetAtAdvancedBetween("2026-07-19T18:59:59Z", "2026-07-19T19:00:00Z")).toBe(false); // jitter
+    expect(resetAtAdvancedBetween("2026-07-19T19:00:00Z", "2026-07-20T00:00:00Z")).toBe(true); // next cycle
+    expect(resetAtAdvancedBetween(undefined, "2026-07-20T00:00:00Z")).toBe(false);
+    expect(resetAtAdvancedBetween("2026-07-20T00:00:00Z", "2026-07-19T19:00:00Z")).toBe(false); // went backwards
   });
 
   it("case 12: expected reset time reached without confirming data → 'expected', never 'confirmed'", () => {

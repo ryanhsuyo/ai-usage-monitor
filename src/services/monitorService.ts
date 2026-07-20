@@ -4,7 +4,7 @@
 //   reaching resetAt can only produce a "reset expected" event, never a confirmed one.
 
 import { computeForecast } from "@/domain/forecast";
-import { detectReset } from "@/domain/resetDetection";
+import { detectReset, resetAtAdvancedBetween } from "@/domain/resetDetection";
 import {
   isLimitNotificationEventEnabled,
   limitUsageWarningThreshold,
@@ -103,11 +103,10 @@ export function createMonitorService(deps: MonitorDeps) {
     const latest = valid[valid.length - 1];
     const previous = valid[valid.length - 2];
 
-    // Reset detection against the previous cycle's expectation.
+    // Reset detection against the previous cycle's expectation. Live fetches jitter resets_at
+    // by ~1s within a cycle, so "advanced" requires a real margin (see resetAtAdvancedBetween).
     const expectedResetAt = previous?.resetAt ?? latest?.resetAt;
-    const resetAtAdvanced = Boolean(
-      latest?.resetAt && previous?.resetAt && Date.parse(latest.resetAt) > Date.parse(previous.resetAt)
-    );
+    const resetAtAdvanced = resetAtAdvancedBetween(previous?.resetAt, latest?.resetAt);
 
     const lowReadings = [...valid]
       .reverse()

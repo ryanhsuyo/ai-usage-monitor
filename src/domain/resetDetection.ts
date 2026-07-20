@@ -32,6 +32,15 @@ export type ResetDetectionOutcome = {
 
 const NONE: ResetDetectionOutcome = { kind: "none", confidence: 0, reasons: [] };
 
+/**
+ * Whether the provider advanced resetAt to a NEW cycle. Live usage fetches jitter resets_at by
+ * around a second within the same cycle, so a real advance must exceed a meaningful margin.
+ */
+export function resetAtAdvancedBetween(previousResetAt?: string, latestResetAt?: string): boolean {
+  if (!isValidIso(previousResetAt) || !isValidIso(latestResetAt)) return false;
+  return toMs(latestResetAt!) - toMs(previousResetAt!) > RESET_DETECTION.MIN_ADVANCE_MS;
+}
+
 export function detectReset(input: ResetDetectionInput): ResetDetectionOutcome {
   const { previous, current } = input;
 
@@ -71,16 +80,21 @@ export function detectReset(input: ResetDetectionInput): ResetDetectionOutcome {
       }
     }
 
-    // (b) confirmed by reset-timestamp change (provider advanced the window and usage is low)
-    if (input.resetAtAdvanced && curUsed <= RESET_DETECTION.CURR_USED_MAX) {
+    // (b) confirmed by reset-timestamp change. The provider advancing resets_at to the next
+    // cycle is authoritative on its own — usage may already have re-accumulated when the app
+    // was asleep across the boundary, so a low current reading only raises confidence.
+    if (input.resetAtAdvanced) {
+      const usageLow = curUsed <= RESET_DETECTION.CURR_USED_MAX;
       return {
         kind: "confirmed",
         method: "confirmed_by_reset_change",
-        confidence: 0.8,
+        confidence: usageLow ? 0.8 : 0.7,
         previousUsedPercent: previous?.usedPercent,
         currentUsedPercent: curUsed,
         expectedResetAt: input.expectedResetAt,
-        reasons: ["重置時間已更新且用量已降低"],
+        reasons: usageLow
+          ? ["重置時間已更新且用量已降低"]
+          : [`重置時間已更新至下一週期，新週期已使用 ${Math.round(curUsed)}%`],
       };
     }
   }

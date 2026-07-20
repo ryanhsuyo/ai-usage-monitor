@@ -154,6 +154,42 @@ describe("notification event generation (spec §9)", () => {
     expect(e!.body).toContain("2%");
   });
 
+  it("labels an on-time confirmed reset as 已重置, not 臨時／提前", () => {
+    const events = evaluateNotificationEvents({
+      ...baseCtx,
+      currentUsedPercent: 34,
+      resetOutcome: {
+        kind: "confirmed",
+        method: "confirmed_by_reset_change",
+        confidence: 0.7,
+        expectedResetAt: at(8), // now is at(10) — boundary already passed
+        reasons: [],
+      },
+    });
+    const e = events.find((x) => x.eventType === "reset_confirmed");
+    expect(e!.title).toContain("額度已重置");
+    expect(e!.title).not.toContain("臨時");
+    expect(e!.body).toContain("新週期已開始");
+    expect(e!.body).toContain("34%");
+  });
+
+  it("labels a reset before the expected boundary as 臨時／提前重置", () => {
+    const events = evaluateNotificationEvents({
+      ...baseCtx,
+      currentUsedPercent: 1,
+      resetOutcome: {
+        kind: "confirmed",
+        method: "confirmed_by_usage_drop",
+        confidence: 0.9,
+        expectedResetAt: at(20), // now is at(10) — reset arrived early
+        reasons: [],
+      },
+    });
+    const e = events.find((x) => x.eventType === "reset_confirmed");
+    expect(e!.title).toContain("臨時／提前重置");
+    expect(e!.body).not.toContain("新週期已開始");
+  });
+
   it("emits exhaustion_forecast with hedged wording when exhausting before reset", () => {
     const events = evaluateNotificationEvents({
       ...baseCtx,

@@ -22,6 +22,8 @@ export const RESET_DETECTION = {
   CURR_USED_MAX: 5,
   /** …with a drop of at least this many percentage points. */
   MIN_DROP: 20,
+  /** resetAt must advance by more than this to count as a new cycle (live fetches jitter ~1s). */
+  MIN_ADVANCE_MS: 30 * 60 * 1000,
 } as const;
 
 export const REMAINING_TASKS = {
