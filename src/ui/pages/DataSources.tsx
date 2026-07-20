@@ -78,7 +78,7 @@ export function DataSourcesPage() {
           setSyncing(true);
           try {
             const services = await getAppServices();
-            const count = await services.collectLocalUsage();
+            const { inserted: count } = await services.collectLocalUsage();
             await store.refresh();
             toast.success(count ? `已同步 ${count} 筆新用量` : "資料已是最新狀態");
           } catch (error) {

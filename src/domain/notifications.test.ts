@@ -347,6 +347,19 @@ describe("notification event generation (spec §9)", () => {
     expect(low.find((e) => e.eventType === "usage_warning")!.title).toContain("即將用完");
   });
 
+  it("collapses a sync failure to one notification per provider per hour", () => {
+    const forLimit = (limitKey: string, limitId: string) =>
+      evaluateNotificationEvents({ ...baseCtx, limitKey, limitId, pollingFailed: true })
+        .find((e) => e.eventType === "polling_failed")!;
+    // A provider with several limits read once and failed once — not three separate incidents.
+    expect(forLimit("weekly:lim-a", "lim-a").eventKey).toBe(forLimit("rolling_session:lim-b", "lim-b").eventKey);
+    // Different providers still report independently.
+    const codex = evaluateNotificationEvents({
+      ...baseCtx, providerId: "codex", providerLabel: "Codex", pollingFailed: true,
+    }).find((e) => e.eventType === "polling_failed")!;
+    expect(codex.eventKey).not.toBe(forLimit("weekly:lim-a", "lim-a").eventKey);
+  });
+
   it("emits usage_warning at the remaining threshold", () => {
     const events = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 10 });
     expect(events.some((x) => x.eventType === "usage_warning")).toBe(true);

@@ -24,6 +24,7 @@ import type {
   UsageSnapshotRepository,
 } from "@/ports";
 import { newId, nowIso } from "./ids";
+import type { LocalUsageCollection } from "./localUsageCollector";
 import type { NotificationDispatcher } from "./notificationDispatcher";
 import { SETTINGS_KEYS, settingBool, settingNum } from "./settingsKeys";
 
@@ -90,14 +91,18 @@ export type MonitorDeps = {
   settingsRepo: SettingsRepository;
   dispatcher: NotificationDispatcher;
   now?: () => string;
-  collectLocalUsage?: () => Promise<number>;
+  collectLocalUsage?: () => Promise<LocalUsageCollection>;
 };
 
 export function createMonitorService(deps: MonitorDeps) {
   const now = deps.now ?? nowIso;
   let inFlight = false;
 
-  async function checkLimit(limit: UsageLimit, accountProviderId: string): Promise<LimitCheckResult> {
+  async function checkLimit(
+    limit: UsageLimit,
+    accountProviderId: string,
+    failedProviders: readonly string[] = []
+  ): Promise<LimitCheckResult> {
     const snapshots = await deps.snapshotRepo.listByLimit(limit.id);
     const valid = snapshots.filter((s) => s.valid);
     const latest = valid[valid.length - 1];
@@ -198,6 +203,9 @@ export function createMonitorService(deps: MonitorDeps) {
           forecast,
           resetOutcome: outcome.kind === "none" ? undefined : outcome,
           lastSuccessAt: latest?.capturedAt,
+          // This run could not read the provider, so its numbers are unknown rather than
+          // unchanged — the one condition the sync-failure notification exists to report.
+          pollingFailed: failedProviders.includes(accountProviderId),
           resetCredits: codexResetCreditMetadata(latest?.note)?.resetCredits,
           resetCreditsAvailable: codexResetCreditMetadata(latest?.note)?.resetAvailableCount,
           settings: {
@@ -245,7 +253,8 @@ export function createMonitorService(deps: MonitorDeps) {
       await deps.schedulerRepo.insertRun(run);
 
       try {
-        await deps.collectLocalUsage?.().catch(() => 0);
+        const collection = await deps.collectLocalUsage?.().catch(() => undefined);
+        const failedProviders = collection?.failedProviders ?? [];
         const limits = (await deps.providerRepo.listLimits()).filter(
           (l) => l.active && l.monitoringEnabled
         );
@@ -256,7 +265,7 @@ export function createMonitorService(deps: MonitorDeps) {
         const allCandidates: CandidateEvent[] = [];
         for (const limit of limits) {
           const providerId = planById.get(limit.planId)?.providerId ?? "custom";
-          const result = await checkLimit(limit, providerId);
+          const result = await checkLimit(limit, providerId, failedProviders);
           checks.push(result);
           allCandidates.push(...result.candidates);
         }

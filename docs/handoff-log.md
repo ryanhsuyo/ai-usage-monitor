@@ -1,5 +1,15 @@
 # Handoff Log
 
+## 2026-07-20 — 「同步失敗」通知從死碼變成真的會發
+
+- 專案體檢發現：通知設定有「讀取本機用量發生錯誤時通知」開關、onboarding 也會寫入偏好，但 `pollingFailed` 這個 context 欄位**全專案沒有任何地方設成 true**，事件永遠不可能發出；而 collector 的 provider 級失敗又被內部 catch 吞掉，monitor 只看到「沒有新讀值」。等於使用者以為有保護、實際沒有——CLI 壞掉、路徑變動、登出都只會表現為數字怪怪的。
+- `createLocalUsageCollector` 回傳型別由 `number` 改為 `{ inserted, failedProviders }`，明確區分「沒變化」與「讀不到」；5 個呼叫端一併更新。
+- `monitorService` 把 `failedProviders` 傳進 `checkLimit`，依該額度所屬 provider 設定 `pollingFailed`。
+- 事件 key 改為 provider 級（`claude:sync:polling_failed:<小時>`）：一次讀取失敗只發一則，不會因為 Claude 有三個額度就一小時吵三次。
+- 測試：拆掉接線即失敗（已驗證），並涵蓋「健康的一輪不發」「別的 provider 失敗不算在這個額度頭上」「同 provider 多額度收斂成同一把 key」。
+- **注意**：此事件預設為關閉（原設計「避免干擾」）。要收到需在通知設定 → 編輯管道 → 勾選「同步失敗」。
+- 驗收：typecheck／lint／199 tests／tauri build 全綠。
+
 ## 2026-07-20 — 重置通知只在「重置當下」發送
 
 - 使用者澄清需求：要一則重置通知，但**不要在重置後已經用了一些才通知**。

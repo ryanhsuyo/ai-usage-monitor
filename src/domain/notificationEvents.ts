@@ -282,9 +282,11 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
     out.push({
       ...base,
       eventType: "polling_failed",
+      // Keyed per provider rather than per limit: the read failed once, and a provider with
+      // three limits would otherwise deliver the same "sync failed" three times an hour.
       eventKey: buildEventKey({
         providerId: ctx.providerId,
-        limitKey: ctx.limitKey,
+        limitKey: "sync",
         eventType: "polling_failed",
         anchorIso: hourBucketIso(ctx.now),
       }),

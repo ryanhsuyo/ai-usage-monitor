@@ -52,7 +52,19 @@ export function isDeferrableMetadataRefresh(
   return Date.parse(nowIso) - Date.parse(latest.capturedAt) < METADATA_REFRESH_MIN_MS;
 }
 
-let collectorInFlight: Promise<number> | undefined;
+export type LocalUsageProvider = "codex" | "claude";
+
+export type LocalUsageCollection = {
+  /** Snapshots written this run. */
+  inserted: number;
+  /**
+   * Providers whose read failed. Distinct from "nothing changed": their numbers are now
+   * unknown rather than merely unchanged, which is what makes a sync failure worth reporting.
+   */
+  failedProviders: LocalUsageProvider[];
+};
+
+let collectorInFlight: Promise<LocalUsageCollection> | undefined;
 
 export function createLocalUsageCollector(
   providerRepo: ProviderRepository,
@@ -61,10 +73,11 @@ export function createLocalUsageCollector(
   diagnostics: DiagnosticLogger,
   enabled: boolean
 ) {
-  return async (onlyProviders?: Array<"codex" | "claude">): Promise<number> => {
-    if (!enabled) return 0;
+  return async (onlyProviders?: Array<"codex" | "claude">): Promise<LocalUsageCollection> => {
+    if (!enabled) return { inserted: 0, failedProviders: [] };
     if (collectorInFlight) return collectorInFlight;
     collectorInFlight = (async () => {
+    const failedProviders: LocalUsageProvider[] = [];
     const { invoke } = await import("@tauri-apps/api/core");
     const sourceStatuses = await dataSourceRepo.list();
     const collect = async (providerId: "codex" | "claude", command: string, displayName: string) => {
@@ -87,6 +100,7 @@ export function createLocalUsageCollector(
           await dataSourceRepo.save({ id: `${providerId}-local`, providerId, adapterId: `${providerId}-local`, displayName, enabled: true, supportsAutomaticPolling: true, reliability: "automated", lastRunAt: ranAt, lastSuccessAt: previous?.lastSuccessAt, lastError: message, updatedAt: ranAt });
           await diagnostics.log("warn", "local_usage_source_failed", providerId).catch(() => undefined);
         }
+        failedProviders.push(providerId);
         return [];
       }
     };
@@ -96,7 +110,7 @@ export function createLocalUsageCollector(
       wants("claude") ? collect("claude", "read_claude_local_usage", "Claude Code /usage 本機快取") : Promise.resolve([]),
     ]);
     const readings = [...codex, ...claude];
-    if (!readings.length) return 0;
+    if (!readings.length) return { inserted: 0, failedProviders };
     const now = nowIso();
     const accounts = await providerRepo.listAccounts();
     const plans = await providerRepo.listPlans();
@@ -168,7 +182,7 @@ export function createLocalUsageCollector(
       await snapshotRepo.insert({ id: newId("snap"), providerId: reading.providerId, accountId: account.id, limitId: limit.id, usedPercent: reading.usedPercent, remainingPercent: 100 - reading.usedPercent, resetAt, capturedAt, source: "cli", valid: true, confidence: reading.quotaStale ? 0 : 1, note });
       inserted++;
     }
-      return inserted;
+      return { inserted, failedProviders };
     })();
     try {
       return await collectorInFlight;

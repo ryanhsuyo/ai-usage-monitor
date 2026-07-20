@@ -55,7 +55,7 @@ import {
   type NotificationDispatcher,
 } from "@/services/notificationDispatcher";
 import { SETTINGS_KEYS, settingBool } from "@/services/settingsKeys";
-import { createLocalUsageCollector } from "@/services/localUsageCollector";
+import { createLocalUsageCollector, type LocalUsageCollection } from "@/services/localUsageCollector";
 
 export const APP_VERSION = "0.3.0";
 
@@ -81,7 +81,7 @@ export type AppServices = {
   scheduler: ReturnType<typeof createScheduler>;
   demo: DemoDataService;
   exportImport: ExportImportService;
-  collectLocalUsage: (onlyProviders?: Array<"codex" | "claude">) => Promise<number>;
+  collectLocalUsage: (onlyProviders?: Array<"codex" | "claude">) => Promise<LocalUsageCollection>;
 };
 
 /** Browser-preview HTTP poster: regular fetch (subject to CORS; fine for previews). */

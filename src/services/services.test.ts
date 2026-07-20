@@ -269,7 +269,10 @@ describe("MonitorService (spec §8 flow 7)", () => {
     });
   });
 
-  function monitor(now = NOW) {
+  function monitor(
+    now = NOW,
+    collectLocalUsage?: () => Promise<{ inserted: number; failedProviders: Array<"codex" | "claude"> }>
+  ) {
     const dispatcher = createNotificationDispatcher({
       repo: repos.notificationRepo,
       secretStore: new InMemorySecretStore(),
@@ -284,6 +287,7 @@ describe("MonitorService (spec §8 flow 7)", () => {
       schedulerRepo: repos.schedulerRepo,
       settingsRepo: repos.settingsRepo,
       dispatcher,
+      collectLocalUsage,
       now: () => now,
     });
   }
@@ -335,6 +339,29 @@ describe("MonitorService (spec §8 flow 7)", () => {
     const resets = await repos.resetRepo.listByLimit("lim-1");
     const confirmed = resets.filter((r) => r.detectionMethod === "confirmed_by_usage_drop");
     expect(confirmed).toHaveLength(1);
+  });
+
+  it("reports a sync failure instead of passing it off as unchanged data", async () => {
+    // The 同步失敗 toggle shipped while nothing ever set pollingFailed, so a broken collector
+    // was indistinguishable from "no new readings" — every later number silently suspect.
+    // The event ships off by default, so enable it for this limit first.
+    await repos.settingsRepo.set(
+      SETTINGS_KEYS.limitEventPreferences,
+      JSON.stringify({ "lim-1": { polling_failed: true } })
+    );
+    await insertSnap("s1", "2026-07-15T09:00:00.000Z", 40, "2026-07-22T08:00:00.000Z");
+
+    const broken = await monitor(NOW, async () => ({ inserted: 0, failedProviders: ["claude"] })).runOnce("manual");
+    const failure = broken.checks[0]!.candidates.find((c) => c.eventType === "polling_failed");
+    expect(failure).toBeDefined();
+    expect(failure!.title).toContain("同步失敗");
+
+    // A healthy run says nothing, and a failure on a provider this limit does not belong to
+    // must not be attributed to it either.
+    const healthy = await monitor(NOW, async () => ({ inserted: 1, failedProviders: [] })).runOnce("manual");
+    expect(healthy.checks[0]!.candidates.some((c) => c.eventType === "polling_failed")).toBe(false);
+    const otherProvider = await monitor(NOW, async () => ({ inserted: 0, failedProviders: ["codex"] })).runOnce("manual");
+    expect(otherProvider.checks[0]!.candidates.some((c) => c.eventType === "polling_failed")).toBe(false);
   });
 
   it("runs one at a time even when triggers arrive together", async () => {

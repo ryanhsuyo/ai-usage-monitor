@@ -317,7 +317,7 @@ function useBootstrap() {
 
     void (async () => {
       const services = await getAppServices();
-      const imported = await services.collectLocalUsage().catch(() => 0);
+      const imported = (await services.collectLocalUsage().catch(() => undefined))?.inserted ?? 0;
       if (imported > 0) {
         await services.settingsRepo.set(SETTINGS_KEYS.onboardingCompleted, "true");
         await services.settingsRepo.set(SETTINGS_KEYS.pollingEnabled, "true");
@@ -411,7 +411,7 @@ function useBootstrap() {
         // Watch the home directory rather than the file itself because Claude Code may replace
         // .claude.json atomically. The adapter debounces duplicate OS events before this callback.
         unwatchClaudeCache = await services.usageCacheWatcher.watchClaudeCache(() => void (async () => {
-          const inserted = await services.collectLocalUsage(["claude"]).catch(() => 0);
+          const inserted = (await services.collectLocalUsage(["claude"]).catch(() => undefined))?.inserted ?? 0;
           if (inserted > 0 && !disposed) {
             await refresh();
             await updateTray();
@@ -421,7 +421,7 @@ function useBootstrap() {
         // Transcript/session files change while the user is actively using Claude or Codex.
         // Refresh only that provider after the platform adapter has debounced the write burst.
         unwatchLocalUsageActivity = await services.usageCacheWatcher.watchLocalUsageActivity((providerId) => void (async () => {
-          const inserted = await services.collectLocalUsage([providerId]).catch(() => 0);
+          const inserted = (await services.collectLocalUsage([providerId]).catch(() => undefined))?.inserted ?? 0;
           if (inserted > 0 && !disposed) {
             await refresh();
             await updateTray();
