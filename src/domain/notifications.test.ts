@@ -191,7 +191,7 @@ describe("notification event generation (spec §9)", () => {
   it("labels an on-time confirmed reset as 已重置, not 臨時／提前", () => {
     const events = evaluateNotificationEvents({
       ...baseCtx,
-      currentUsedPercent: 34,
+      currentUsedPercent: 3,
       resetOutcome: {
         kind: "confirmed",
         method: "confirmed_by_reset_change",
@@ -204,7 +204,31 @@ describe("notification event generation (spec §9)", () => {
     expect(e!.title).toContain("額度已重置");
     expect(e!.title).not.toContain("臨時");
     expect(e!.body).toContain("新週期已開始");
-    expect(e!.body).toContain("34%");
+    expect(e!.body).toContain("3%");
+  });
+
+  it("announces a reset only while the new cycle is untouched", () => {
+    const confirmed = {
+      kind: "confirmed" as const,
+      method: "confirmed_by_reset_change" as const,
+      confidence: 0.7,
+      expectedResetAt: at(8), // boundary already passed — an on-time reset
+      reasons: [],
+    };
+    // Caught at the moment it happened: this is the unblock signal worth pushing.
+    const fresh = evaluateNotificationEvents({ ...baseCtx, currentUsedPercent: 0, resetOutcome: confirmed });
+    expect(fresh.some((e) => e.eventType === "reset_confirmed")).toBe(true);
+
+    // Noticed only after the user had been working in the new cycle (app asleep across the
+    // boundary, or a provider restating its window) — stale news, so no push.
+    const late = evaluateNotificationEvents({ ...baseCtx, currentUsedPercent: 34, resetOutcome: confirmed });
+    expect(late.some((e) => e.eventType === "reset_confirmed")).toBe(false);
+
+    // The 7/20 complaint: a false detection at 4% must not be announced either.
+    const barelyUsed = evaluateNotificationEvents({ ...baseCtx, currentUsedPercent: 4, resetOutcome: confirmed });
+    expect(barelyUsed.some((e) => e.eventType === "reset_confirmed")).toBe(true); // still fresh…
+    const clearlyUsing = evaluateNotificationEvents({ ...baseCtx, currentUsedPercent: 6, resetOutcome: confirmed });
+    expect(clearlyUsing.some((e) => e.eventType === "reset_confirmed")).toBe(false); // …but this is not
   });
 
   it("labels a reset before the expected boundary as 臨時／提前重置", () => {

@@ -159,7 +159,11 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
   }
 
   // --- Reset confirmed ---
-  if (ctx.resetOutcome?.kind === "confirmed") {
+  // Announced only while the new cycle is still untouched: the point of this notification is
+  // "your quota is back", which stops being useful once the user is already spending it.
+  const freshCycle =
+    (ctx.currentUsedPercent ?? 0) <= NOTIFICATION.RESET_NOTIFY_MAX_USED_PERCENT;
+  if (ctx.resetOutcome?.kind === "confirmed" && freshCycle) {
     // A reset at (or after) its expected time is routine; "臨時／提前" is reserved for a reset
     // that arrives BEFORE the expected boundary.
     const expectedIso = ctx.resetOutcome.expectedResetAt;

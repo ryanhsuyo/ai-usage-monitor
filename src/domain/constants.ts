@@ -85,6 +85,13 @@ export const NOTIFICATION = {
   CYCLE_ANCHOR_TOLERANCE_MS: 30 * 60 * 1000,
   /** At or below this remaining share the quota is spent — forecasting exhaustion is moot. */
   EXHAUSTED_REMAINING_PERCENT: 1,
+  /**
+   * A reset is only announced while the new cycle still reads this fresh. Noticed later — the
+   * app was asleep, or the provider restated its window — the user has already been working in
+   * the new cycle, so "your quota reset" is stale news rather than the unblock signal it exists
+   * to be. The reset is still recorded; only the push is withheld.
+   */
+  RESET_NOTIFY_MAX_USED_PERCENT: 5,
 } as const;
 
 export const SCHEDULER = {
