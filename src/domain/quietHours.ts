@@ -6,6 +6,39 @@ export type QuietHours = {
   end?: string;
 };
 
+/**
+ * Normalize loose time entry into canonical "HH:MM" so users can type `2300`, `23`, or `9`.
+ * With a separator each side is read literally (`23:5` → 23:05); without one, the last two
+ * digits are the minutes (`930` → 09:30). Returns "" for cleared input and undefined when the
+ * text cannot be read as a time, so callers can keep it on screen and flag it instead of
+ * silently rewriting what the user typed.
+ */
+export function normalizeHhMm(raw: string): string | undefined {
+  const text = raw.trim();
+  if (!text) return "";
+
+  let hours: number;
+  let minutes: number;
+  const separated = /^(\d{1,2})\s*[:：.．]\s*(\d{1,2})?$/.exec(text);
+  if (separated) {
+    hours = Number(separated[1]);
+    minutes = separated[2] ? Number(separated[2]) : 0;
+  } else if (/^\d{1,4}$/.test(text)) {
+    if (text.length <= 2) {
+      hours = Number(text);
+      minutes = 0;
+    } else {
+      hours = Number(text.slice(0, -2));
+      minutes = Number(text.slice(-2));
+    }
+  } else {
+    return undefined;
+  }
+
+  if (hours > 23 || minutes > 59) return undefined;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 function parseHM(hm: string): number | undefined {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hm.trim());
   if (!m) return undefined;

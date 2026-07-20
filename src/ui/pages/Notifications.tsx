@@ -7,6 +7,7 @@ import type {
   NotificationChannelType,
   NotificationEventType,
 } from "@/domain/types";
+import { normalizeHhMm } from "@/domain/quietHours";
 import { getAppServices } from "../appServices";
 import { Badge, ConfirmDialog, Modal, Switch, toast } from "../components/atoms";
 import { CHANNEL_TYPE_LABELS, EVENT_TYPE_LABELS, formatDateTime } from "../components/format";
@@ -404,9 +405,25 @@ function ChannelFormModal(props: { channel?: NotificationChannelConfig; initialT
   const needsSecret = type !== "desktop";
   const secretMeta = SECRET_LABELS[type];
 
+  // Quiet hours accept loose entry; normalize on blur and surface why a value won't take effect.
+  const normalizedQuietStart = normalizeHhMm(quietStart);
+  const normalizedQuietEnd = normalizeHhMm(quietEnd);
+  const quietStartInvalid = normalizedQuietStart === undefined;
+  const quietEndInvalid = normalizedQuietEnd === undefined;
+  const quietHalfSet = Boolean(normalizedQuietStart) !== Boolean(normalizedQuietEnd);
+  const quietWindow = normalizedQuietStart && normalizedQuietEnd
+    ? `${normalizedQuietStart}–${normalizedQuietEnd}`
+    : undefined;
+
   async function save(testAfterSave = false) {
     if (!name.trim()) {
       toast.error("請輸入管道名稱");
+      return;
+    }
+    // Saving can be triggered without blurring the field, so normalize here too rather than
+    // persisting text that quiet-hours evaluation would silently ignore.
+    if (normalizedQuietStart === undefined || normalizedQuietEnd === undefined) {
+      toast.error("靜音時間格式無法辨識，請輸入 0–23 時、0–59 分");
       return;
     }
     setSaving(true);
@@ -437,8 +454,8 @@ function ChannelFormModal(props: { channel?: NotificationChannelConfig; initialT
         secretRef,
         config: Object.keys(config).length > 0 ? config : undefined,
         eventPreferences: props.channel?.eventPreferences ?? { ...DEFAULT_PREFS },
-        quietHoursStart: quietStart || undefined,
-        quietHoursEnd: quietEnd || undefined,
+        quietHoursStart: normalizedQuietStart || undefined,
+        quietHoursEnd: normalizedQuietEnd || undefined,
         minIntervalMinutes: minInterval.trim() === "" ? undefined : Number(minInterval),
         createdAt: props.channel?.createdAt ?? nowIso(),
         updatedAt: nowIso(),
@@ -531,11 +548,23 @@ function ChannelFormModal(props: { channel?: NotificationChannelConfig; initialT
       <div className="form-row-3">
         <label className="field">
           靜音開始（HH:MM）
-          <input value={quietStart} onChange={(e) => setQuietStart(e.target.value)} placeholder="23:00" />
+          <input
+            value={quietStart}
+            onChange={(e) => setQuietStart(e.target.value)}
+            onBlur={(e) => setQuietStart(normalizeHhMm(e.target.value) ?? e.target.value)}
+            placeholder="23:00"
+            aria-invalid={quietStartInvalid}
+          />
         </label>
         <label className="field">
           靜音結束（HH:MM）
-          <input value={quietEnd} onChange={(e) => setQuietEnd(e.target.value)} placeholder="08:00" />
+          <input
+            value={quietEnd}
+            onChange={(e) => setQuietEnd(e.target.value)}
+            onBlur={(e) => setQuietEnd(normalizeHhMm(e.target.value) ?? e.target.value)}
+            placeholder="08:00"
+            aria-invalid={quietEndInvalid}
+          />
         </label>
         <label className="field">
           最小間隔（分鐘）
@@ -548,6 +577,15 @@ function ChannelFormModal(props: { channel?: NotificationChannelConfig; initialT
           />
         </label>
       </div>
+      <span className={`hint ${quietStartInvalid || quietEndInvalid || quietHalfSet ? "hint-warn" : ""}`}>
+        {quietStartInvalid || quietEndInvalid
+          ? "靜音時間格式無法辨識，請輸入 0–23 時、0–59 分（可直接打 2300 或 23）。"
+          : quietHalfSet
+            ? "靜音時段需要同時填寫開始與結束時間，只填一邊不會生效。"
+            : quietWindow
+              ? `此管道在每天 ${quietWindow} 之間不發送通知（略過不補發）。`
+              : "留空表示不設靜音時段；可直接輸入 2300 或 23，離開欄位會自動補成 23:00。"}
+      </span>
       <div className="modal-actions">
         <span />
         <button type="button" onClick={props.onClose}>

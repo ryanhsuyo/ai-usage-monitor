@@ -271,6 +271,9 @@ table.data tbody tr:hover td { background: #f7f9fa; }
 .chart-box { background: white; border: 1px solid #e0e4e7; border-radius: 11px; padding: 18px; }
 .chart-box svg { display: block; width: 100%; height: auto; }
 
+.hint-warn { color: #b5761f; }
+.field input[aria-invalid="true"], input[aria-invalid="true"] { border-color: #d9a13d; }
+
 /* ---------- usage/cost statistics page ---------- */
 .stats-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
 .stats-summary > div { background: white; border: 1px solid #e0e4e7; border-radius: 11px; padding: 12px 14px; }
@@ -338,6 +341,7 @@ p.hint { font-size: 11px; color: #8a9198; }
   .limit-threshold-field { border-color: #303840; color: #c0c7ce; }.limit-threshold-field strong { color: #e5e9ec; }.limit-threshold-field input { background: #14181d; border-color: #39434c; color: #eef2f5; }
   .discord-guide { background: #1b222c; border-color: #344052; color: #b3bbc6; }
   .discord-guide strong { color: #e0e5eb; }
+  .hint-warn { color: #dcb15f; }
   .stats-summary > div { background: #1c2127; border-color: #2c333b; }
   .stats-summary small { color: #7d8791; }
   .stats-model-row td { background: #181d22; color: #98a1ab; }
