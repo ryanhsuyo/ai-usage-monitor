@@ -147,7 +147,7 @@ function StripProviderRow({
     : awaitingRefresh
     ? `${label}：官方重置時間已到，舊週期用量已停止顯示\n正在等待供應商回傳新週期資料，不會把未確認資料假設為 0%${resetCreditTooltip}`
     : latest
-    ? `${label}：已使用 ${Math.round(used)}%\n預估耗盡：${exhaustion ? fullDate(forecast.estimatedExhaustionAt) : "資料不足"}\n額度重置：${fullDate(latest.resetAt)}${expiry.expiring ? `\n額度即將到期：尚餘 ${Math.round(latest.remainingPercent)}%，每小時約可使用 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour ?? 0))}%` : ""}\n預測可信度：${Math.round(forecast.confidence * 100)}%${resetCreditTooltip}${codexCostTooltip(meta)}`
+    ? `${label}：已使用 ${Math.round(used)}%\n預估耗盡：${exhaustion ? fullDate(forecast.estimatedExhaustionAt) : "資料不足"}\n額度重置：${fullDate(latest.resetAt)}${expiry.expiring ? `\n額度即將到期：尚餘 ${Math.round(latest.remainingPercent)}%${(expiry.hoursUntilReset ?? 0) >= 1 && expiry.suggestedPercentPerHour !== undefined ? `，每小時約可使用 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour))}%` : "，重置在即，可能來不及用完"}` : ""}\n預測可信度：${Math.round(forecast.confidence * 100)}%${resetCreditTooltip}${codexCostTooltip(meta)}`
     : `${label}：等待資料`;
   const tokenTotal = meta ? meta.inputTokens + meta.outputTokens : undefined;
   const costLabel = meta?.apiEquivalentUsd === undefined

@@ -61,9 +61,26 @@ function hourBucketIso(iso: string): string {
   return d.toISOString();
 }
 
+// The product speaks zh-TW everywhere, but toLocaleString() follows the runtime locale, which
+// rendered notification times as "7/18/2026, 7:59:59 PM" inside otherwise-Chinese copy.
+const LOCAL_DATE_TIME = new Intl.DateTimeFormat("zh-TW", {
+  month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit",
+});
+
 function formatLocal(iso: string | undefined): string {
   if (!iso || !isValidIso(iso)) return "未知時間";
-  return new Date(Date.parse(iso)).toLocaleString();
+  return LOCAL_DATE_TIME.format(new Date(Date.parse(iso)));
+}
+
+/**
+ * Durations in reader-friendly units. Hours alone forced "距離重置仍有 168 小時" onto weekly
+ * limits, and rounding sub-hour gaps produced the nonsensical "預估約 0 小時後耗盡".
+ */
+export function formatDuration(hours: number): string {
+  if (!Number.isFinite(hours) || hours < 0) return "未知";
+  if (hours < 1) return "不到 1 小時";
+  if (hours < 48) return `約 ${Math.round(hours)} 小時`;
+  return `約 ${Math.round(hours / 24)} 天`;
 }
 
 export function evaluateNotificationEvents(ctx: NotificationContext): CandidateEvent[] {
@@ -132,7 +149,11 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
       title: `${ctx.providerLabel} ${ctx.limitLabel}即將到期`,
       body:
         `依目前資料，仍剩約 ${Math.round(ctx.remainingPercent ?? 0)}%，將於 ${formatLocal(ctx.nextResetAt)} 重置。` +
-        `\n若希望在到期前充分使用，平均每小時可使用約 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour ?? 0))}%。`,
+        // An hourly pace only means something while at least an hour remains; dividing the
+        // remainder by a few minutes produced advice like "每小時可使用約 242%".
+        ((expiry.hoursUntilReset ?? 0) >= 1 && expiry.suggestedPercentPerHour !== undefined
+          ? `\n若希望在到期前充分使用，平均每小時可使用約 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour))}%。`
+          : `\n距離重置${formatDuration(expiry.hoursUntilReset ?? 0)}，剩餘額度可能來不及用完。`),
       severity: "info",
     });
   }
@@ -198,8 +219,10 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
       }),
       title: `${ctx.providerLabel} ${ctx.limitLabel}可能在重置前用完`,
       body:
-        `依目前速度，預估約 ${Math.round(hoursToExhaust)} 小時後耗盡。` +
-        (hoursToReset !== undefined ? `\n距離重置仍有 ${Math.round(hoursToReset)} 小時。` : ""),
+        (hoursToExhaust < 1
+          ? "依目前速度，預估不到 1 小時就會耗盡。"
+          : `依目前速度，預估${formatDuration(hoursToExhaust)}後耗盡。`) +
+        (hoursToReset !== undefined ? `\n距離重置還有${formatDuration(hoursToReset)}。` : ""),
       severity: "warning",
     });
   }
@@ -218,8 +241,14 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
         eventType: "usage_warning",
         anchorIso: cycleAnchor,
       }),
-      title: `${ctx.providerLabel} ${ctx.limitLabel}即將用完`,
-      body: `依目前資料，剩餘額度約 ${Math.round(ctx.remainingPercent)}%。`,
+      // At (or below) the exhausted threshold the quota is gone, not "about to" go.
+      title: exhausted
+        ? `${ctx.providerLabel} ${ctx.limitLabel}已用完`
+        : `${ctx.providerLabel} ${ctx.limitLabel}即將用完`,
+      body: exhausted
+        ? `額度已用盡，需等待重置。` +
+          (ctx.nextResetAt ? `\n預計 ${formatLocal(ctx.nextResetAt)} 重置。` : "")
+        : `依目前資料，剩餘額度約 ${Math.round(ctx.remainingPercent)}%。`,
       severity: "warning",
     });
   }

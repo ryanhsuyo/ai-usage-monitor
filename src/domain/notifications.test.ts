@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NOTIFICATION } from "./constants";
 import { alreadyDelivered, buildEventKey, isSameCycleEvent, shouldSend } from "./dedup";
-import { evaluateNotificationEvents } from "./notificationEvents";
+import { evaluateNotificationEvents, formatDuration } from "./notificationEvents";
 import { backoffForAttempt, decideRetry } from "./retry";
 import { isInQuietHours, isQuietAt, passesMinInterval } from "./quietHours";
 import type { NotificationDelivery } from "./types";
@@ -268,6 +268,59 @@ describe("notification event generation (spec §9)", () => {
       evaluateNotificationEvents({ ...spentForecast, remainingPercent: 12 })
         .some((x) => x.eventType === "exhaustion_forecast")
     ).toBe(true);
+  });
+
+  it("writes times in zh-TW, never the runtime's default locale", () => {
+    const events = evaluateNotificationEvents({
+      ...baseCtx, now: at(10), nextResetAt: at(30), remainingPercent: 68, windowHours: 168,
+    });
+    const body = events.find((e) => e.eventType === "quota_expiring")!.body;
+    // "7/18/2026, 7:59:59 PM" inside Chinese copy was the symptom.
+    expect(body).not.toMatch(/AM|PM|\d{1,2}\/\d{1,2}\/\d{4}/);
+    expect(body).toMatch(/[年月日週]|\d{1,2}\/\d{1,2}/);
+  });
+
+  it("drops the hourly pace advice when under an hour remains", () => {
+    // 48% left with minutes to go once produced "平均每小時可使用約 242%".
+    const events = evaluateNotificationEvents({
+      ...baseCtx, now: at(10), nextResetAt: at(10.2), remainingPercent: 48, windowHours: 5,
+    });
+    const body = events.find((e) => e.eventType === "quota_expiring")?.body ?? "";
+    expect(body).not.toMatch(/每小時/);
+    expect(body).toContain("來不及用完");
+  });
+
+  it("never reports an exhaustion 約 0 小時 away", () => {
+    const events = evaluateNotificationEvents({
+      ...baseCtx,
+      remainingPercent: 20,
+      nextResetAt: at(11),
+      forecast: {
+        limitId: "limit-1", calculatedAt: at(10), estimatedExhaustionAt: at(10.3),
+        willExhaustBeforeReset: true, confidence: 0.8, sampleCount: 5, warnings: [],
+      },
+    });
+    const body = events.find((e) => e.eventType === "exhaustion_forecast")!.body;
+    expect(body).not.toContain("0 小時");
+    expect(body).toContain("不到 1 小時");
+  });
+
+  it("reports long waits in days rather than triple-digit hours", () => {
+    expect(formatDuration(0.5)).toBe("不到 1 小時");
+    expect(formatDuration(3)).toBe("約 3 小時");
+    expect(formatDuration(47)).toBe("約 47 小時");
+    expect(formatDuration(168)).toBe("約 7 天");
+  });
+
+  it("says the quota is spent, not 即將用完, once it is gone", () => {
+    const events = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 0, nextResetAt: at(30) });
+    const warning = events.find((e) => e.eventType === "usage_warning")!;
+    expect(warning.title).toContain("已用完");
+    expect(warning.title).not.toContain("即將");
+    expect(warning.body).toContain("額度已用盡");
+    // A quota with real headroom keeps the forward-looking wording.
+    const low = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 8 });
+    expect(low.find((e) => e.eventType === "usage_warning")!.title).toContain("即將用完");
   });
 
   it("emits usage_warning at the remaining threshold", () => {
