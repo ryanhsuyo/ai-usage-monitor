@@ -1,5 +1,15 @@
 # Handoff Log
 
+## 2026-07-20 — Rust 解析層補上自動測試
+
+- 體檢時列為最高風險：`local_usage.rs` 518 行是全 App 數字的來源（額度、token、成本），卻只有 2 個 `#[ignore]` 實機測試——上游一改格式不會報錯，只會靜靜給出錯的數字。
+- 為了可測，把兩段解析核心從檔案 I/O 抽成純函式：
+  - `aggregate_daily_usage(lines, utc_offset)`：成本頁的每日×模型彙總。
+  - `claude_limit_descriptor(limit)`：官方 `limits` 陣列 → App 額度模型（kind／名稱／視窗／key／重置時間）。
+- 新增 8 個測試，全部餵真實 JSON 形狀：token 加總與 TTL 分項、跨檔案 message id 去重、非計費行（壞 JSON／無 usage／無 id／`<synthetic>`／無時間戳）一律略過、時區分桶（23:30Z 在 UTC+8 屬隔天）、三種 limit kind 的映射與 key 穩定性、無法辨識的 kind 必須跳過而非猜測、滿額暫停需「全部」額度皆滿且未到期、RFC3339 解析。
+- **以故障注入驗證測試有效**：把 `ephemeral_5m_input_tokens` 改名 → 彙總測試失敗；把 `/scope/model/display_name` 改路徑 → 映射測試失敗。重構後實機 live 測試仍通過（真實 數百 MB 歷史）。
+- 驗收：cargo test 8 passed／typecheck／lint／199 vitest／tauri build 全綠。
+
 ## 2026-07-20 — 「同步失敗」通知從死碼變成真的會發
 
 - 專案體檢發現：通知設定有「讀取本機用量發生錯誤時通知」開關、onboarding 也會寫入偏好，但 `pollingFailed` 這個 context 欄位**全專案沒有任何地方設成 true**，事件永遠不可能發出；而 collector 的 provider 級失敗又被內部 catch 吞掉，monitor 只看到「沒有新讀值」。等於使用者以為有保護、實際沒有——CLI 壞掉、路徑變動、登出都只會表現為數字怪怪的。

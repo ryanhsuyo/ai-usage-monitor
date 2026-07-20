@@ -11,9 +11,9 @@
 |---|---|
 | `pnpm typecheck` | ✅ 0 errors（TS strict） |
 | `pnpm lint` | ✅ 0 errors / 0 warnings |
-| `pnpm test` | ✅ 172/172（20 檔） |
+| `pnpm test` | ✅ 199/199（21 檔） |
 | `pnpm tauri build` | ✅ `.app` + `.dmg`（unsigned） |
-| Rust `cargo check` | ✅ |
+| Rust `cargo test` | ✅ 8 個解析測試 + 2 個 `#[ignore]` 實機測試 |
 
 ## 已完成
 

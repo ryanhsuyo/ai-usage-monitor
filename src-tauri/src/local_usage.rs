@@ -105,9 +105,6 @@ struct ClaudeUsageFetchState {
 
 static CLAUDE_USAGE_FETCH: OnceLock<Mutex<ClaudeUsageFetchState>> = OnceLock::new();
 
-/// Ask Claude Code for live official usage through the stream-json control protocol
-/// (`get_usage`), which calls the provider's usage endpoint directly. This consumes no quota
-/// and needs no terminal emulation; only the returned limits are read, never credentials.
 /// Locate the Claude Code binary. A GUI app's PATH only carries system directories, so probe the
 /// common install locations (native installer, Homebrew, npm global) before falling back to PATH.
 fn claude_binary(home: &str) -> PathBuf {
@@ -123,6 +120,9 @@ fn claude_binary(home: &str) -> PathBuf {
     PathBuf::from("claude")
 }
 
+/// Ask Claude Code for live official usage through the stream-json control protocol
+/// (`get_usage`), which calls the provider's usage endpoint directly. This consumes no quota
+/// and needs no terminal emulation; only the returned limits are read, never credentials.
 fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> Option<Vec<Value>> {
     let binary = claude_binary(home);
     let mut child = Command::new(binary)
@@ -392,13 +392,23 @@ pub fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModel
     if files.is_empty() {
         return Err("找不到 Claude Code 本機對話紀錄（~/.claude/projects）".into());
     }
+    let bodies: Vec<String> = files.iter().filter_map(|(_, path)| fs::read_to_string(path).ok()).collect();
+    aggregate_daily_usage(bodies.iter().flat_map(|body| body.lines()), utc_offset_minutes)
+}
+
+/// Fold transcript lines into per-day, per-model totals. Kept free of the filesystem so the
+/// parsing contract with Claude Code's transcript format can be tested directly: a silent shape
+/// change here shows up as wrong money on the cost page rather than as an error.
+fn aggregate_daily_usage<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    utc_offset_minutes: i32,
+) -> Result<Vec<DailyModelUsage>, String> {
     let date_format = time::format_description::parse_borrowed::<2>("[year]-[month]-[day]")
         .map_err(|error| error.to_string())?;
     let mut seen_messages = HashSet::new();
     let mut by_day_model: HashMap<(String, String), DailyModelUsage> = HashMap::new();
-    for (_, path) in files {
-        let Ok(body) = fs::read_to_string(&path) else { continue };
-        for line in body.lines() {
+    {
+        for line in lines {
             let Ok(root) = serde_json::from_str::<Value>(line) else { continue };
             let Some(usage) = root.pointer("/message/usage") else { continue };
             let message_id = root.pointer("/message/id").and_then(Value::as_str)
@@ -428,6 +438,37 @@ pub fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModel
     let mut rows: Vec<DailyModelUsage> = by_day_model.into_values().collect();
     rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.model.cmp(&b.model)));
     Ok(rows)
+}
+
+struct ClaudeLimitDescriptor {
+    limit_key: String,
+    name: String,
+    window: u64,
+    percent: f64,
+    reset: i64,
+}
+
+/// Map one entry of Claude Code's official `limits` array onto the app's limit model. This is the
+/// contract with an upstream JSON shape we do not control, so it is kept pure and covered by
+/// tests: an unrecognised kind must be skipped rather than guessed at, and the limit key has to
+/// stay stable or the app starts a second limit row for the same quota.
+fn claude_limit_descriptor(limit: &Value) -> Option<ClaudeLimitDescriptor> {
+    let kind = limit.get("kind").and_then(Value::as_str).unwrap_or("");
+    let percent = limit.get("percent").and_then(Value::as_f64)?;
+    let scoped_model = limit.pointer("/scope/model/display_name").and_then(Value::as_str);
+    let (name, window) = match kind {
+        "session" => ("Claude Current session".to_string(), 300),
+        "weekly_all" => ("Claude Weekly（全模型）".to_string(), 10080),
+        "weekly_scoped" => (format!("Claude Weekly（{}）", scoped_model.unwrap_or("模型")), 10080),
+        _ => return None,
+    };
+    Some(ClaudeLimitDescriptor {
+        limit_key: format!("claude-{kind}-{}", scoped_model.unwrap_or("all")),
+        name,
+        window,
+        percent,
+        reset: limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix).unwrap_or(0),
+    })
 }
 
 #[tauri::command]
@@ -463,21 +504,11 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
 
     let mut readings = Vec::new();
     for limit in limits {
-        let kind = limit.get("kind").and_then(Value::as_str).unwrap_or("");
-        let Some(percent) = limit.get("percent").and_then(Value::as_f64) else { continue };
-        let (name, window) = match kind {
-            "session" => ("Claude Current session".to_string(), 300),
-            "weekly_all" => ("Claude Weekly（全模型）".to_string(), 10080),
-            "weekly_scoped" => {
-                let model = limit.pointer("/scope/model/display_name").and_then(Value::as_str).unwrap_or("模型");
-                (format!("Claude Weekly（{model}）"), 10080)
-            }
-            _ => continue,
-        };
-        let reset = limit.get("resets_at").and_then(Value::as_str).and_then(timestamp_unix).unwrap_or(0);
+        let Some(descriptor) = claude_limit_descriptor(&limit) else { continue };
+        let ClaudeLimitDescriptor { limit_key, name, window, percent, reset } = descriptor;
         readings.push(LocalUsageReading {
             provider_id: "claude".into(),
-            limit_key: format!("claude-{kind}-{}", limit.pointer("/scope/model/display_name").and_then(Value::as_str).unwrap_or("all")),
+            limit_key,
             limit_name: name, used_percent: percent, window_minutes: window,
             reset_at_unix: reset, captured_at: captured_at.clone(), session_count,
             model_usage: model_usage.clone(), input_tokens, cached_input_tokens, output_tokens,
@@ -492,6 +523,129 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    // One transcript line in Claude Code's real shape.
+    fn line(id: &str, model: &str, ts: &str, usage: Value) -> String {
+        json!({ "timestamp": ts, "message": { "id": id, "model": model, "usage": usage } }).to_string()
+    }
+
+    #[test]
+    fn daily_usage_sums_tokens_per_day_and_model() {
+        let lines = [
+            line("m1", "claude-opus-4-8", "2026-07-19T01:00:00.000Z",
+                 json!({ "input_tokens": 10, "output_tokens": 100, "cache_read_input_tokens": 1000,
+                         "cache_creation_input_tokens": 500,
+                         "cache_creation": { "ephemeral_5m_input_tokens": 200, "ephemeral_1h_input_tokens": 300 } })),
+            line("m2", "claude-opus-4-8", "2026-07-19T02:00:00.000Z",
+                 json!({ "input_tokens": 5, "output_tokens": 50 })),
+            line("m3", "claude-fable-5", "2026-07-19T03:00:00.000Z",
+                 json!({ "input_tokens": 1, "output_tokens": 7 })),
+        ];
+        let rows = aggregate_daily_usage(lines.iter().map(String::as_str), 0).expect("aggregate");
+        assert_eq!(rows.len(), 2, "one row per (day, model)");
+        let opus = rows.iter().find(|r| r.model == "claude-opus-4-8").expect("opus row");
+        assert_eq!(opus.date, "2026-07-19");
+        assert_eq!((opus.input_tokens, opus.output_tokens), (15, 150));
+        assert_eq!(opus.cache_read_tokens, 1000);
+        // The TTL split drives cache-write pricing (5m = 1.25x input, 1h = 2x).
+        assert_eq!((opus.cache_creation_tokens, opus.cache_creation_5m_tokens, opus.cache_creation_1h_tokens), (500, 200, 300));
+        assert_eq!(opus.message_count, 2);
+    }
+
+    #[test]
+    fn daily_usage_counts_each_message_once_across_files() {
+        // The same message id appears in two transcripts (resumed session); counting it twice
+        // would inflate the cost page.
+        let usage = json!({ "input_tokens": 10, "output_tokens": 10 });
+        let lines = [
+            line("dup", "claude-opus-4-8", "2026-07-19T01:00:00.000Z", usage.clone()),
+            line("dup", "claude-opus-4-8", "2026-07-19T01:00:00.000Z", usage.clone()),
+        ];
+        let rows = aggregate_daily_usage(lines.iter().map(String::as_str), 0).expect("aggregate");
+        assert_eq!(rows[0].message_count, 1);
+        assert_eq!(rows[0].output_tokens, 10);
+    }
+
+    #[test]
+    fn daily_usage_skips_lines_that_are_not_billable_messages() {
+        let usage = json!({ "input_tokens": 10, "output_tokens": 10 });
+        let lines = [
+            "not json at all".to_string(),
+            json!({ "timestamp": "2026-07-19T01:00:00.000Z", "type": "summary" }).to_string(), // no usage
+            line("", "claude-opus-4-8", "2026-07-19T01:00:00.000Z", usage.clone()),            // no id
+            line("s1", "<synthetic>", "2026-07-19T01:00:00.000Z", usage.clone()),              // local-only
+            json!({ "message": { "id": "no-ts", "model": "claude-opus-4-8", "usage": usage } }).to_string(),
+        ];
+        assert!(aggregate_daily_usage(lines.iter().map(String::as_str), 0).expect("aggregate").is_empty());
+    }
+
+    #[test]
+    fn daily_usage_buckets_dates_in_the_callers_timezone() {
+        // 23:30Z on the 19th is already the 20th in UTC+8 — the day a Taipei user would expect.
+        let lines = [line("m1", "claude-opus-4-8", "2026-07-19T23:30:00.000Z", json!({ "output_tokens": 1 }))];
+        let utc = aggregate_daily_usage(lines.iter().map(String::as_str), 0).expect("utc");
+        let taipei = aggregate_daily_usage(lines.iter().map(String::as_str), 8 * 60).expect("taipei");
+        assert_eq!(utc[0].date, "2026-07-19");
+        assert_eq!(taipei[0].date, "2026-07-20");
+    }
+
+    #[test]
+    fn claude_limits_map_onto_the_apps_limit_model() {
+        let session = claude_limit_descriptor(&json!({
+            "kind": "session", "percent": 66.0, "resets_at": "2026-07-19T13:59:59.865244+00:00", "scope": null
+        })).expect("session limit");
+        assert_eq!(session.limit_key, "claude-session-all");
+        assert_eq!(session.name, "Claude Current session");
+        assert_eq!(session.window, 300);
+        assert_eq!(session.percent, 66.0);
+        assert_eq!(session.reset, 1784469599);
+
+        let scoped = claude_limit_descriptor(&json!({
+            "kind": "weekly_scoped", "percent": 51.0, "resets_at": "2026-07-25T11:59:59.865714+00:00",
+            "scope": { "model": { "id": null, "display_name": "Fable" } }
+        })).expect("scoped limit");
+        assert_eq!(scoped.limit_key, "claude-weekly_scoped-Fable");
+        assert_eq!(scoped.name, "Claude Weekly（Fable）");
+        assert_eq!(scoped.window, 10080);
+
+        let weekly = claude_limit_descriptor(&json!({ "kind": "weekly_all", "percent": 27.0, "resets_at": null }))
+            .expect("weekly limit");
+        assert_eq!(weekly.limit_key, "claude-weekly_all-all");
+        assert_eq!(weekly.reset, 0, "a missing reset must not be invented");
+    }
+
+    #[test]
+    fn claude_limits_skip_shapes_the_app_cannot_model() {
+        // A kind we do not understand must be dropped, not guessed at — inventing a window or
+        // name would surface a fabricated limit row in the UI.
+        assert!(claude_limit_descriptor(&json!({ "kind": "tangelo", "percent": 10.0 })).is_none());
+        assert!(claude_limit_descriptor(&json!({ "kind": "session" })).is_none(), "no percent");
+    }
+
+    #[test]
+    fn full_quota_pause_needs_every_limit_full_and_unreset() {
+        let future = OffsetDateTime::now_utc().unix_timestamp() + 3600;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let full = |percent: f64, reset: i64| json!({
+            "percent": percent,
+            "resets_at": OffsetDateTime::from_unix_timestamp(reset).unwrap().format(&Rfc3339).unwrap(),
+        });
+        assert!(all_full_waiting_for_reset(&[full(100.0, future), full(99.5, future)], now));
+        // One limit still has headroom: the others keep moving, so refreshing must continue.
+        assert!(!all_full_waiting_for_reset(&[full(100.0, future), full(40.0, future)], now));
+        // Full but the reset is already due — confirming the new cycle takes priority.
+        assert!(!all_full_waiting_for_reset(&[full(100.0, now - 60)], now));
+        assert!(!all_full_waiting_for_reset(&[], now), "no limits is not a paused state");
+    }
+
+    #[test]
+    fn timestamps_parse_rfc3339_and_reject_anything_else() {
+        assert_eq!(timestamp_unix("2026-07-19T13:59:59.865244+00:00"), Some(1784469599));
+        assert_eq!(timestamp_unix("2026-07-19T13:59:59Z"), Some(1784469599));
+        assert_eq!(timestamp_unix("2026-07-19 13:59:59"), None);
+        assert_eq!(timestamp_unix(""), None);
+    }
 
     #[test]
     #[ignore = "live check: reads the real ~/.claude/projects transcript history"]
