@@ -1,5 +1,13 @@
 # Handoff Log
 
+## 2026-07-20 — Discord 一則通知不再顯示兩次
+
+- 使用者回報同一則「額度即將用完」在 Discord 出現兩次。查 delivery 紀錄確認**只有一筆 Discord 投遞**（另一筆是桌面通知管道），排除重複發送。
+- 真因在 payload：`discordPayload` 同時送出 `content`（純文字）與 `embeds`（同樣的 title／description）。這是 7/19 為了「客戶端偶爾不渲染 embed 會留下空訊息」加的保險，但在正常渲染 embed 的客戶端就會把同一段文字顯示兩次——截圖本身即證明 embed 正常渲染。
+- 改為只送 embed（保留嚴重度顏色、footer、timestamp；⚠️／ℹ️／🚨 前綴仍在 title）。測試改為斷言「不得同時存在 content 副本」，避免日後有人再把保險加回來。
+- Slack／Telegram／自訂 webhook 仍走 `plainText`，不受影響。
+- 驗收：typecheck／lint／188 tests／tauri build 全綠。
+
 ## 2026-07-20 — 耗盡額度不再重複轟炸通知
 
 - 使用者回報同一組「可能在重置前用完／即將用完」每輪都重發。查 `notification_deliveries` 找到真因：event key 尾端的重置時間在兩次輪詢間差 **1 秒**（`…16:02:16.000Z` vs `…16:02:17.000Z`），去重是字串完全比對，於是每次都被當成全新事件。

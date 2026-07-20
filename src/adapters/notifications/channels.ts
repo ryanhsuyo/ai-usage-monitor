@@ -40,12 +40,11 @@ const DISCORD_COLORS: Record<NotificationMessage["severity"], number> = {
 };
 
 function discordPayload(message: NotificationMessage) {
-  const content = plainText(message);
   return {
     username: "AI Usage Monitor",
-    // Keep visible text alongside the richer embed. Some Discord clients can
-    // temporarily fail to render webhook embeds, otherwise leaving an empty shell.
-    content: content.slice(0, 2000),
+    // The embed is the only rendering of the message. It previously also went out as plain
+    // `content` in case a client failed to render embeds, but clients that do render them
+    // then show the same text twice — one notification must look like one notification.
     embeds: [{
       title: `${SEVERITY_PREFIX[message.severity]} ${message.title}`,
       description: message.body.slice(0, 4096),

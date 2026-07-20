@@ -125,19 +125,21 @@ describe("channel adapters (spec §9)", () => {
     await adapter.send(config(), { secret: "https://discord.com/api/webhooks/1/token" }, { title: "額度提醒", body: "剩餘 10%", severity: "warning" });
     expect(http.calls[0]?.body).toMatchObject({
       username: "AI Usage Monitor",
-      content: "⚠️ 額度提醒\n剩餘 10%",
       allowed_mentions: { parse: [] },
       embeds: [{ title: "⚠️ 額度提醒", description: "剩餘 10%", color: 0xd49a3a }],
     });
   });
 
-  it("discord: includes visible text even when the client does not render embeds", async () => {
+  it("discord: renders the message once — no plain-text copy alongside the embed", async () => {
     const http = fakeHttp({ status: 204, ok: true });
     const adapter = createDiscordAdapter(http);
     await adapter.send(config(), { secret: "https://discord.com/api/webhooks/1/token" }, MESSAGE);
-    expect((http.calls[0]?.body as { content?: string }).content).toBe(
-      "ℹ️ 測試通知\n這是一則測試訊息。"
-    );
+    const body = http.calls[0]?.body as { content?: string; embeds: Array<{ title: string; description: string }> };
+    // A `content` duplicate makes clients that do render embeds show the same text twice.
+    expect(body.content ?? "").toBe("");
+    expect(body.embeds).toHaveLength(1);
+    expect(body.embeds[0]!.title).toContain("測試通知");
+    expect(body.embeds[0]!.description).toBe("這是一則測試訊息。");
   });
 
   it("failure responses carry an error code and NEVER leak the secret", async () => {
