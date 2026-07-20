@@ -1,5 +1,15 @@
 # Handoff Log
 
+## 2026-07-20 — 通知重複全面稽核（第三、四個成因）
+
+- 使用者再回報「額度預計已重置」在 Discord 出現兩則，要求全面檢查重複問題。稽核本機已送出的全部通知紀錄：**約四成是同一事件的重複**，成因共四個，前兩個已於稍早修掉：
+  1. 錨點抖動 → 不同 event key（已修，`stableAnchor` + `isSameCycleEvent`）。
+  2. Discord `content` 與 `embeds` 同內容 → 一則投遞顯示兩次（已修）。
+  3. **新發現：dispatcher 的 delivery claim 是 check-then-insert**。兩個並行 run 都查不到既有 delivery 就都 insert，撞上 `uq_delivery_eventkey_channel` 後直接拋錯，讓**整個 monitor run 失敗**（scheduler_runs 實際留有多筆 `UNIQUE constraint failed` 的 failed run）。改為 insert 失敗時重查：確認是他人已claim就安靜跳過，否則才拋出真正的儲存錯誤。新測試以 fake DB 的同一唯一索引重現該錯誤訊息，移除容錯即失敗。
+  4. **新發現：並行來源是殘留的 scheduler**。`useBootstrap` 的 cleanup 沒有 `scheduler.stop()`，dev 熱重載／StrictMode 重掛載每次都留下一個仍在跳的舊排程器——實測 `interval` 觸發在 0.5 秒內跑了四次，也解釋了相隔約 3 分鐘的同事件重複。cleanup 補上停止。
+- **修正一則錯誤診斷（記錄以免重犯）**：原先判定 `runOnce` 的 in-flight 檢查前有 `await` 會造成 race，並據此改寫。實測把「bug」放回去測試仍然通過——JS 單執行緒下檢查與設旗標之間沒有 await，不會交錯。該改動已還原，只保留驗證單一執行的測試。
+- 驗收：typecheck／lint／190 tests／tauri build 全綠。
+
 ## 2026-07-20 — Discord 一則通知不再顯示兩次
 
 - 使用者回報同一則「額度即將用完」在 Discord 出現兩次。查 delivery 紀錄確認**只有一筆 Discord 投遞**（另一筆是桌面通知管道），排除重複發送。

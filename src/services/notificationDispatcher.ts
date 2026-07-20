@@ -61,10 +61,15 @@ export function createNotificationDispatcher(deps: DispatcherDeps) {
     return event;
   }
 
+  /**
+   * Claim the delivery slot for this (event, channel). Returns undefined when another run won
+   * the claim — the unique index on (event_key, channel_id) is the arbiter, so a concurrent
+   * dispatcher can neither send the same notification twice nor crash the run it lost.
+   */
   async function deliveryFor(
     event: NotificationEvent,
     channel: NotificationChannelConfig
-  ): Promise<NotificationDelivery> {
+  ): Promise<NotificationDelivery | undefined> {
     const existing = await deps.repo.listDeliveries({
       eventKey: event.eventKey,
       channelId: channel.id,
@@ -78,7 +83,16 @@ export function createNotificationDispatcher(deps: DispatcherDeps) {
       status: "pending",
       attemptCount: 0,
     };
-    await deps.repo.insertDelivery(fresh);
+    try {
+      await deps.repo.insertDelivery(fresh);
+    } catch (error) {
+      const raced = await deps.repo.listDeliveries({
+        eventKey: event.eventKey,
+        channelId: channel.id,
+      });
+      if (raced[0]) return undefined; // lost the race; the winner owns the send
+      throw error; // a genuine storage failure, not a duplicate claim
+    }
     return fresh;
   }
 
@@ -164,6 +178,7 @@ export function createNotificationDispatcher(deps: DispatcherDeps) {
           if (!shouldSend(event.eventKey, channel.id, deliveries)) continue;
 
           const delivery = await deliveryFor(event, channel);
+          if (!delivery) continue; // another run is already delivering this one
 
           // bounded retry
           const retry = decideRetry(delivery);

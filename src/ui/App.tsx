@@ -312,6 +312,7 @@ function useBootstrap() {
     let unwatchClaudeCache: (() => void) | undefined;
     let unwatchLocalUsageActivity: (() => void) | undefined;
     let resetRefreshTimer: ReturnType<typeof setInterval> | undefined;
+    let startedScheduler: { stop: () => void } | undefined;
     const attemptedResetAnchors = new Set<string>();
 
     void (async () => {
@@ -333,6 +334,7 @@ function useBootstrap() {
 
       // hourly scheduler + immediate launch check (single-flight guarded inside)
       services.scheduler.start();
+      startedScheduler = services.scheduler;
 
       // Reset boundaries deserve a prompt refresh instead of waiting for the regular scheduler.
       // Each limit/resetAt pair is attempted once; the normal scheduler remains the retry path.
@@ -439,6 +441,10 @@ function useBootstrap() {
       unwatchClaudeCache?.();
       unwatchLocalUsageActivity?.();
       if (resetRefreshTimer) clearInterval(resetRefreshTimer);
+      // Stop the poller too. Without this every remount (dev hot reload, StrictMode's double
+      // mount) leaves the previous scheduler ticking, and each survivor dispatches its own
+      // notifications — the observed four interval runs inside half a second.
+      startedScheduler?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

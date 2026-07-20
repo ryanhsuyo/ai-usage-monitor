@@ -130,6 +130,21 @@ describe("NotificationDispatcher (spec §9 / §20 cases 19-23)", () => {
     expect(discord.sends).toBe(1);
   });
 
+  it("concurrent dispatchers send once and neither run crashes", async () => {
+    // Two monitor runs can overlap (several triggers fire around a reset boundary). Both
+    // observe no delivery yet; the unique (event_key, channel_id) index decides the winner,
+    // and the loser must skip quietly instead of throwing and failing its whole run.
+    await saveChannel(repos);
+    const desktop = fakeAdapter("desktop", () => ({ ok: true, deliveredAt: NOW }));
+    const d = dispatcher({ desktop });
+    const [a, b] = await Promise.all([d.dispatch([candidate()]), d.dispatch([candidate()])]);
+    expect(desktop.sends).toBe(1);
+    expect(a.sent + b.sent).toBe(1);
+    const deliveries = await repos.notificationRepo.listDeliveries({});
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]!.status).toBe("sent");
+  });
+
   it("per-channel event preferences gate delivery", async () => {
     await saveChannel(repos, {
       eventPreferences: {
@@ -320,6 +335,19 @@ describe("MonitorService (spec §8 flow 7)", () => {
     const resets = await repos.resetRepo.listByLimit("lim-1");
     const confirmed = resets.filter((r) => r.detectionMethod === "confirmed_by_usage_drop");
     expect(confirmed).toHaveLength(1);
+  });
+
+  it("runs one at a time even when triggers arrive together", async () => {
+    // A reset boundary fires the boundary check, the file watcher and the scheduler at once.
+    // Both callers must not get past the in-flight guard, or the same event is dispatched twice.
+    await insertSnap("s1", "2026-07-15T00:00:00.000Z", 70, "2026-07-15T08:00:00.000Z");
+    const m = monitor();
+    const [a, b] = await Promise.all([m.runOnce("manual"), m.runOnce("manual")]);
+    expect([a.skipped, b.skipped].filter(Boolean)).toHaveLength(1);
+    expect([a, b].find((r) => r.skipped)!.reason).toBe("already running");
+    // Only the winner evaluated limits, so only one set of candidates reached the dispatcher.
+    expect([a, b].find((r) => !r.skipped)!.checks).toHaveLength(1);
+    expect([a, b].find((r) => r.skipped)!.checks).toHaveLength(0);
   });
 
   it("produces a forecast per monitored limit and skips when polling disabled", async () => {
