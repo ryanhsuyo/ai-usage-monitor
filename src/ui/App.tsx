@@ -485,14 +485,39 @@ export function App() {
     .slice(0, 4);
   const codexWidget = widgetLimits.find((item) => (item.plan?.providerId ?? item.latest?.providerId) === "codex");
   const codexWidgetMeta = codexMeta(codexWidget?.latest?.note);
+  // Feed the strip footer the same context the hover panels get. Without current usage and the
+  // reset time it defaulted to 0% used, so the advice could never say a credit was worth using.
+  const codexWidgetSnapshot = codexWidget?.latest;
+  const codexWidgetForecast = codexWidget
+    ? computeForecast({
+        limitId: codexWidget.limit.id,
+        snapshots: store.snapshotsByLimit[codexWidget.limit.id] ?? [],
+        now: new Date().toISOString(),
+        resetAt: codexWidgetSnapshot?.resetAt,
+        cycleStartIso: currentCycleStart(store.resetEvents.filter((event) => event.limitId === codexWidget.limit.id)),
+        manualOnly: false,
+        sourceReliability: "automated",
+      })
+    : undefined;
   const codexWidgetTickets = summarizeResetCredits(
     codexWidgetMeta?.resetAvailableCount ?? 0,
     codexWidgetMeta?.resetCredits ?? [],
-    new Date().toISOString()
+    new Date().toISOString(),
+    72,
+    codexWidgetSnapshot?.usedPercent ?? 0,
+    codexWidgetSnapshot?.resetAt,
+    codexWidgetForecast?.burnRate24h
   );
   const codexTicketDates = codexWidgetTickets.expiryDates.map((date) =>
     new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(date))
   );
+  const codexResetMoment = codexWidgetSnapshot?.resetAt
+    ? new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+        .format(new Date(codexWidgetSnapshot.resetAt))
+    : undefined;
+  const codexTicketAdvice = codexWidgetTickets.recommendations[0]?.action === "use_now"
+    ? `建議用 1 張`
+    : undefined;
   if (!ready || !store.loaded) {
     return (
       <><WindowControls /><div className="loading" role="status">
@@ -568,7 +593,10 @@ export function App() {
         })}
         {codexWidgetMeta && <div className={`strip-reset-tickets ${codexWidgetTickets.expiringSoon ? "warning" : ""}`}>
           {codexWidgetMeta.resetCreditsAvailable
-            ? <><strong>Reset {codexWidgetTickets.availableCount} 張</strong><span>{codexTicketDates.length ? `到期 ${codexTicketDates.join("、")}` : "目前沒有可用票券"}</span></>
+            ? <>
+                <strong>Reset {codexWidgetTickets.availableCount} 張{codexTicketAdvice ? ` · ${codexTicketAdvice}` : ""}</strong>
+                <span>{[codexResetMoment && `重置 ${codexResetMoment}`, codexTicketDates.length ? `到期 ${codexTicketDates.join("、")}` : "無可用票券"].filter(Boolean).join(" · ")}</span>
+              </>
             : <><strong>Reset 票券</strong><span>同步中，將自動重試</span></>}
         </div>}
       </section>
