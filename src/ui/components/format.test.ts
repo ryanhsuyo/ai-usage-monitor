@@ -9,14 +9,14 @@ describe("formatCompactCountdown", () => {
     // 「18時32分」is how Chinese writes 18:32, and this widget also shows real reset moments,
     // so a countdown in that shape was indistinguishable from a clock reading.
     const span = formatCompactCountdown(inMinutes(18 * 60 + 32), NOW)!;
-    expect(span).not.toMatch(/^\d+時\d+分$/);
-    expect(span).toBe("18時32分後");
+    expect(span).not.toMatch(/\d+[時:]\d+/); // nothing shaped like 18:32 or 18時32分
+    expect(span).toBe("18h32m");
   });
 
   it("labels every unit as elapsed time", () => {
-    expect(formatCompactCountdown(inMinutes(4 * 24 * 60), NOW)).toBe("4天0時後");
-    expect(formatCompactCountdown(inMinutes(298), NOW)).toBe("4時58分後");
-    expect(formatCompactCountdown(inMinutes(45), NOW)).toBe("45分後");
+    expect(formatCompactCountdown(inMinutes(4 * 24 * 60), NOW)).toBe("4d0h");
+    expect(formatCompactCountdown(inMinutes(298), NOW)).toBe("4h58m");
+    expect(formatCompactCountdown(inMinutes(45), NOW)).toBe("45m");
   });
 
   it("says a reset is underway rather than counting past it", () => {

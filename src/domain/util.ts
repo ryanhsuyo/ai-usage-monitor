@@ -72,14 +72,26 @@ export function outlierCount(values: number[], iqrFactor: number): number {
 
 // The product speaks zh-TW everywhere, so dates must not follow the runtime locale (which once
 // rendered "7/18/2026, 7:59:59 PM" inside otherwise-Chinese copy).
+// 24-hour throughout: 下午08:00 is both longer and easier to misread than 20:00, and the
+// compact widget renders these beside countdowns, which use h/m units to stay distinguishable.
 const LOCAL_DATE_TIME = new Intl.DateTimeFormat("zh-TW", {
-  month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit",
+  month: "numeric", day: "numeric", weekday: "short",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+const LOCAL_TIME_SHORT = new Intl.DateTimeFormat("zh-TW", {
+  month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
 
-/** A wall-clock moment the reader can act on, e.g. `7/25（週六） 下午08:00`. */
+/** A wall-clock moment the reader can act on, e.g. `7/25（週六） 20:00`. */
 export function formatLocalDateTime(iso: string | undefined): string {
   if (!isValidIso(iso)) return "未知時間";
   return LOCAL_DATE_TIME.format(new Date(Date.parse(iso)));
+}
+
+/** The same moment without the weekday, for places measured in pixels, e.g. `7/25 20:00`. */
+export function formatLocalDateTimeShort(iso: string | undefined): string {
+  if (!isValidIso(iso)) return "未知時間";
+  return LOCAL_TIME_SHORT.format(new Date(Date.parse(iso)));
 }
 
 /**

@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { computeForecast, shouldShowExhaustion } from "@/domain/forecast";
+import { formatLocalDateTime, formatLocalDateTimeShort } from "@/domain/util";
 import { estimateCodexApiEquivalent, type CodexModelUsage } from "@/domain/codexCost";
 import { estimateClaudeApiEquivalent, type ClaudeModelUsage } from "@/domain/claudeCost";
 import { computeQuotaExpiry } from "@/domain/quotaExpiry";
@@ -138,9 +139,7 @@ function StripProviderRow({
       : stripRightInfo === "cost"
         ? `金額 ${inlineCost ?? "--"}`
         : `重置 ${reset ?? "--"} · 用完 ${exhaustion ?? "--"}`;
-  const fullDate = (iso?: string) => iso ? new Intl.DateTimeFormat("zh-TW", {
-    month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit",
-  }).format(new Date(iso)) : "資料不足";
+  const fullDate = (iso?: string) => iso ? formatLocalDateTime(iso) : "資料不足";
   const resetCreditTooltip = resetCredits.availableCount > 0
     ? `\n可用 Full reset：${resetCredits.availableCount} 張${resetCredits.plan ? `\n${resetCredits.plan.message}` : ""}${resetCredits.recommendations.length ? `\n${resetCredits.recommendations.map((item, index) => `第 ${index + 1} 張 ${fullDate(item.expiresAt)} 到期：${item.message}；最晚 ${fullDate(item.latestUseAt)}`).join("\n")}` : "（未提供到期明細）"}`
     : "";
@@ -514,8 +513,7 @@ export function App() {
     new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(date))
   );
   const codexResetMoment = codexWidgetSnapshot?.resetAt
-    ? new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
-        .format(new Date(codexWidgetSnapshot.resetAt))
+    ? formatLocalDateTimeShort(codexWidgetSnapshot.resetAt)
     : undefined;
   const codexTicketAdvice = codexWidgetTickets.recommendations[0]?.action === "use_now"
     ? `建議用 1 張`
@@ -557,7 +555,7 @@ export function App() {
             const resetCredits = summarizeResetCredits(meta?.resetAvailableCount ?? 0, meta?.resetCredits ?? [], new Date().toISOString(), 72, awaitingRefresh ? 0 : used, latest?.resetAt);
             const resetCreditDetails = resetCredits.recommendations.map((item, index) => {
               const expiry = new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(item.expiresAt));
-              const latestUse = new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(item.latestUseAt));
+              const latestUse = formatLocalDateTimeShort(item.latestUseAt);
               return `第 ${index + 1} 張：${expiry} 到期｜${item.message}｜最晚 ${latestUse}`;
             });
             if (!latest) return <article className="widget-provider unavailable" key={limit.id}>
@@ -569,7 +567,7 @@ export function App() {
               <div className="widget-provider-head"><strong>{label}{provider === "codex" && meta?.resetCreditsAvailable ? ` · Reset ${resetCredits.availableCount} 張` : ""}</strong>{quotaStale ? <span className="waiting">待官方更新</span> : awaitingRefresh ? <span className="waiting">待更新</span> : <span>{Math.round(used)}</span>}</div>
               <small>{limit.name}</small>
               <div className={`widget-meter ${awaitingRefresh || quotaStale ? "waiting" : ""}`}><i style={{ width: `${awaitingRefresh || quotaStale ? 35 : Math.min(100, Math.max(0, used))}%` }} /></div>
-              {quotaStale ? <div className="widget-cycle-refresh">偵測到使用活動，等待 Claude 官方額度更新</div> : awaitingRefresh ? <div className="widget-cycle-refresh">已到官方重置時間，等待新週期資料</div> : <div className="widget-meta"><span>剩餘 {Math.round(100 - used)}%</span><span>{latest?.resetAt ? `重置 ${new Intl.DateTimeFormat("zh-TW", { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(latest.resetAt))}` : "未提供重置時間"}</span></div>}
+              {quotaStale ? <div className="widget-cycle-refresh">偵測到使用活動，等待 Claude 官方額度更新</div> : awaitingRefresh ? <div className="widget-cycle-refresh">已到官方重置時間，等待新週期資料</div> : <div className="widget-meta"><span>剩餘 {Math.round(100 - used)}%</span><span>{latest?.resetAt ? `重置 ${formatLocalDateTimeShort(latest.resetAt)}` : "未提供重置時間"}</span></div>}
               {resetCredits.availableCount > 0 && <div className={`widget-reset-credit ${resetCredits.expiringSoon ? "warning" : ""}`}><span>Full reset {resetCredits.availableCount} 張</span><strong>{resetCredits.nearestExpiry ? `最近 ${new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(resetCredits.nearestExpiry))} 到期` : "到期日未知"}</strong></div>}
               {provider === "codex" && meta && !meta.resetCreditsAvailable && <div className="widget-reset-credit warning"><span>Reset 票券</span><strong>同步失敗，將自動重試</strong></div>}
               {resetCreditDetails.length > 0 && <div className="widget-reset-list">{resetCreditDetails.map((detail, index) => <div className={resetCredits.recommendations[index]?.action === "use_now" ? "use-now" : ""} key={resetCredits.recommendations[index]?.expiresAt}><b>{index + 1}</b><span>{detail.replace(`第 ${index + 1} 張：`, "")}</span></div>)}</div>}
