@@ -3,7 +3,7 @@
 // language (provider marks, stats row, card grid) lives on in the pages.
 
 import { useEffect, useMemo, useState } from "react";
-import { computeForecast } from "@/domain/forecast";
+import { computeForecast, shouldShowExhaustion } from "@/domain/forecast";
 import { estimateCodexApiEquivalent, type CodexModelUsage } from "@/domain/codexCost";
 import { estimateClaudeApiEquivalent, type ClaudeModelUsage } from "@/domain/claudeCost";
 import { computeQuotaExpiry } from "@/domain/quotaExpiry";
@@ -110,7 +110,9 @@ function StripProviderRow({
     manualOnly: snapshots.every((snapshot) => snapshot.source === "manual" || snapshot.source === "json_import"),
     sourceReliability: snapshots.every((snapshot) => snapshot.source === "demo") ? "demo" : "automated",
   }), [latest?.resetAt, limitId, now, resetEvents, snapshots]);
-  const exhaustion = !awaitingRefresh && forecast.confidence >= 0.35 ? stripTimeLabel(forecast.estimatedExhaustionAt, now) : undefined;
+  const exhaustion = !awaitingRefresh && shouldShowExhaustion(forecast, 0.35)
+    ? stripTimeLabel(forecast.estimatedExhaustionAt, now)
+    : undefined;
   const reset = stripTimeLabel(latest?.resetAt, now);
   const expiry = computeQuotaExpiry({
     now: new Date(now).toISOString(), resetAt: latest?.resetAt,
@@ -147,7 +149,7 @@ function StripProviderRow({
     : awaitingRefresh
     ? `${label}：官方重置時間已到，舊週期用量已停止顯示\n正在等待供應商回傳新週期資料，不會把未確認資料假設為 0%${resetCreditTooltip}`
     : latest
-    ? `${label}：已使用 ${Math.round(used)}%\n預估耗盡：${exhaustion ? fullDate(forecast.estimatedExhaustionAt) : "資料不足"}\n額度重置：${fullDate(latest.resetAt)}${expiry.expiring ? `\n額度即將到期：尚餘 ${Math.round(latest.remainingPercent)}%${(expiry.hoursUntilReset ?? 0) >= 1 && expiry.suggestedPercentPerHour !== undefined ? `，每小時約可使用 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour))}%` : "，重置在即，可能來不及用完"}` : ""}\n預測可信度：${Math.round(forecast.confidence * 100)}%${resetCreditTooltip}${codexCostTooltip(meta)}`
+    ? `${label}：已使用 ${Math.round(used)}%\n預估耗盡：${exhaustion ? fullDate(forecast.estimatedExhaustionAt) : forecast.willExhaustBeforeReset === false ? "本週期用不完" : "資料不足"}\n額度重置：${fullDate(latest.resetAt)}${expiry.expiring ? `\n額度即將到期：尚餘 ${Math.round(latest.remainingPercent)}%${(expiry.hoursUntilReset ?? 0) >= 1 && expiry.suggestedPercentPerHour !== undefined ? `，每小時約可使用 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour))}%` : "，重置在即，可能來不及用完"}` : ""}\n預測可信度：${Math.round(forecast.confidence * 100)}%${resetCreditTooltip}${codexCostTooltip(meta)}`
     : `${label}：等待資料`;
   const tokenTotal = meta ? meta.inputTokens + meta.outputTokens : undefined;
   const costLabel = meta?.apiEquivalentUsd === undefined

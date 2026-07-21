@@ -134,3 +134,19 @@ export function computeForecast(input: ForecastInput): ForecastResult {
     warnings: [...new Set([...warnings, ...conf.reasons])],
   };
 }
+
+/**
+ * Should an exhaustion countdown be shown to the user?
+ *
+ * An estimate that lands after the reset never comes true — the quota refills first — so a
+ * 5-hour window advertising "用完 18時32分" is three resets away and reads as a broken number.
+ * Low-confidence estimates are withheld for the usual reason: they are guesses.
+ */
+export function shouldShowExhaustion(
+  forecast: Pick<ForecastResult, "estimatedExhaustionAt" | "willExhaustBeforeReset" | "confidence">,
+  minConfidence: number
+): boolean {
+  if (!forecast.estimatedExhaustionAt) return false;
+  if (forecast.confidence < minConfidence) return false;
+  return forecast.willExhaustBeforeReset !== false;
+}

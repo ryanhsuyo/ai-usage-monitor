@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeForecast } from "./forecast";
+import { computeForecast, shouldShowExhaustion } from "./forecast";
 import { at, snap } from "./testFixtures";
 
 describe("forecast (spec §11 / §20 cases 13,14)", () => {
@@ -93,5 +93,29 @@ describe("forecast (spec §11 / §20 cases 13,14)", () => {
     // Whatever basis was chosen, the estimate must exist and confidence must be < 0.7 (low-ish).
     expect(f.estimatedExhaustionAt).toBeDefined();
     expect(f.confidence).toBeLessThan(0.7);
+  });
+});
+
+describe("shouldShowExhaustion", () => {
+  const base = { estimatedExhaustionAt: "2026-07-22T06:00:00.000Z", confidence: 0.8 };
+
+  it("hides an estimate that lands after the quota resets", () => {
+    // The reported case: a 5-hour window showing 用完 18時32分 — by then it has reset three
+    // times over, so the number describes something that cannot happen.
+    expect(shouldShowExhaustion({ ...base, willExhaustBeforeReset: false }, 0.35)).toBe(false);
+  });
+
+  it("shows an estimate that arrives before the reset", () => {
+    expect(shouldShowExhaustion({ ...base, willExhaustBeforeReset: true }, 0.35)).toBe(true);
+  });
+
+  it("still shows one when the comparison could not be made", () => {
+    // No reset time to compare against: withhold the reset claim, not the estimate itself.
+    expect(shouldShowExhaustion({ ...base, willExhaustBeforeReset: undefined }, 0.35)).toBe(true);
+  });
+
+  it("withholds guesses and empty estimates", () => {
+    expect(shouldShowExhaustion({ ...base, willExhaustBeforeReset: true, confidence: 0.2 }, 0.35)).toBe(false);
+    expect(shouldShowExhaustion({ estimatedExhaustionAt: undefined, confidence: 0.9, willExhaustBeforeReset: true }, 0.35)).toBe(false);
   });
 });
