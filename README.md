@@ -55,17 +55,50 @@ src-tauri/       Rust：migrations、keyring 指令、tray、關窗隱藏、plug
 
 ## 使用者安裝（macOS）
 
+> **尚未提供預先建置的 .dmg。** 目前請依下方「開發」章節自行建置（`pnpm tauri build`）。
+> 打包好的下載版會發佈在 [Releases](../../releases)。
+
+打包版發佈後的安裝流程：
+
 ```
 下載 .dmg → 拖進 Applications → 打開 App → 完成初次設定 → 開始使用
 ```
 
-不需要 Node.js、Rust、SQLite、Terminal、資料庫設定或任何 Server。
+屆時不需要 Node.js、Rust、SQLite、Terminal、資料庫設定或任何 Server。
 
-> 目前為未簽章（unsigned）本機建置：第一次開啟需在「系統設定 → 隱私權與安全性」允許，或對 App 右鍵→打開。正式簽章與 notarization 在 Roadmap Phase 5。
+> 為未簽章（unsigned）建置：第一次開啟需在「系統設定 → 隱私權與安全性」允許，或對 App 右鍵→打開。正式簽章與 notarization 在 Roadmap Phase 5。
 
 ## 開發
 
-需求：Node 18+、pnpm 9、Rust stable（含 Xcode CLT）。
+### 環境需求
+
+需要 **Node.js 18+**、**pnpm**、**Rust stable**，以及 macOS 的 **Xcode Command Line Tools**。
+先確認你已經有哪些：
+
+```bash
+node -v      # 需 v18 以上
+pnpm -v
+rustc -V
+xcode-select -p
+```
+
+任何一項缺少時，依下列安裝（皆為官方建議方式）：
+
+```bash
+# Xcode Command Line Tools —— 編譯 Rust 的前提，先裝這個
+xcode-select --install
+
+# Node.js：用 Homebrew，或到 https://nodejs.org 下載 LTS 安裝檔
+brew install node
+
+# pnpm：Node 內建 corepack 即可啟用，不需另外下載
+corepack enable && corepack prepare pnpm@latest --activate
+
+# Rust：官方 rustup，安裝後重開終端機或執行 source "$HOME/.cargo/env"
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### 指令
 
 ```bash
 pnpm install
@@ -77,6 +110,8 @@ pnpm lint             # ESLint（0 warning 門檻）
 pnpm test             # Vitest 全部測試
 pnpm tauri build      # 產出 .app 與 .dmg（src-tauri/target/release/bundle/）
 ```
+
+> **首次 `pnpm tauri dev` 或 `pnpm tauri build` 需要編譯 600 多個 Rust crate，約數分鐘且期間幾乎沒有輸出——這是正常的，不是當掉。** 之後的建置會使用快取，數秒即可完成。
 
 ## 資料儲存位置
 
