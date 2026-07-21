@@ -70,7 +70,8 @@ describe("summarizeResetCredits", () => {
     expect(plan.message).toMatch(/約 2 天/); // what one credit buys
     expect(plan.message).toMatch(/約 5 天/); // what still has to be covered
     // Never phrased as spending the stack.
-    expect(plan.message).not.toMatch(/用完全部|全部使用|使用 3 張/);
+    // The projection informs, but the advice never names a number of credits to spend.
+    expect(plan.message).not.toMatch(/用完全部|全部使用|使用 3 張|需 3 張/);
   });
 
   it("says to hold the credits while the current quota still has room", () => {
@@ -94,7 +95,7 @@ describe("summarizeResetCredits", () => {
       100 / 48 // one credit lasts two days
     );
     expect(summary.plan!.estimatedNeeded).toBe(5);
-    expect(summary.plan!.message).toContain("只有 1 張");
+    expect(summary.plan!.message).toContain("不夠補滿");
     expect(summary.plan!.message).toContain("放慢");
   });
 

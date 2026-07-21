@@ -160,11 +160,14 @@ function StripProviderRow({
     </div>
     <div className={`strip-meter ${latest && !awaitingRefresh && !quotaStale ? "" : "waiting"}`}><i style={{ width: `${latest && !awaitingRefresh && !quotaStale ? Math.min(100, Math.max(0, used)) : 35}%` }} /></div>
     {meta && <div className="strip-hover" role="tooltip">
+      {/* The row only has space for a countdown; the reader still needs the wall-clock moment. */}
+      <div><strong>額度重置</strong><b>{fullDate(latest?.resetAt)}</b></div>
       <div><strong>Codex 成本</strong><b>{costLabel}</b></div>
       <small>{new Intl.NumberFormat("zh-TW", { notation: "compact", maximumFractionDigits: 1 }).format(tokenTotal ?? 0)} tokens · API 等值，非實際扣款</small>
       {resetCredits.availableCount > 0 && <><div className={resetCredits.expiringSoon ? "reset-credit-warning" : ""}><strong>Full reset</strong><b>{resetCredits.availableCount} 張 · {resetCredits.recommendations[0]?.action === "use_now" ? "建議現在用" : `最近 ${resetCredits.nearestExpiry ? new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(resetCredits.nearestExpiry)) : "日期未知"}到期`}</b></div><small>{resetCredits.plan?.message ?? resetCredits.recommendations[0]?.message} · 全部：{resetCredits.expiryDates.length ? resetCredits.expiryDates.map((date) => new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(date))).join("、") : "未提供明細"}</small></>}
     </div>}
     {claude && <div className="strip-hover" role="tooltip">
+      <div><strong>額度重置</strong><b>{fullDate(latest?.resetAt)}</b></div>
       <div><strong>Claude 近 24 小時</strong><b>API 等值 US${claudeCost.toFixed(2)}</b></div>
       <small>{claudeBreakdown.map((model) => `${model.model.replace("claude-", "")} ${model.cost === undefined ? "未定價" : `$${model.cost.toFixed(2)}`}`).join(" · ")}</small>
     </div>}

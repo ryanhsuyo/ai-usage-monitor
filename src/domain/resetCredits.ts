@@ -110,10 +110,10 @@ function buildPlan(input: {
     ? Math.max(1, Math.ceil(hoursUntilReset / hoursPerCredit))
     : undefined;
   const pace = hoursPerCredit !== undefined
-    ? `依近期速度 1 張可撐 ${formatSpan(hoursPerCredit)}`
+    ? `依近期速度 1 張可撐${formatSpan(hoursPerCredit)}`
     : undefined;
   const gap = hoursUntilReset !== undefined
-    ? `距離 ${formatLocalDateTime(automaticResetAt)} 重置還有 ${formatSpan(hoursUntilReset)}`
+    ? `距離 ${formatLocalDateTime(automaticResetAt)} 重置還有${formatSpan(hoursUntilReset)}`
     : undefined;
 
   if (usedPercent < 80) {
@@ -125,14 +125,16 @@ function buildPlan(input: {
     };
   }
 
-  // Ready to spend — exactly one, then reassess against fresh numbers.
+  // Ready to spend — exactly one, then reassess against fresh numbers. The projection says
+  // whether this one credit reaches the reset, never "spend N of them": a credit redeemed
+  // while the previous quota is unspent is wasted, so a count is not something to act on.
   const outlook = estimatedNeeded === undefined
     ? "用完這張再依當時用量決定下一張"
     : estimatedNeeded <= 1
       ? "這 1 張預計就能撐到重置"
       : estimatedNeeded > count
-        ? `照這個速度撐到重置約需 ${estimatedNeeded} 張，但只有 ${count} 張，後段可能要放慢`
-        : `照這個速度撐到重置約需 ${estimatedNeeded} 張，用完這張再看要不要下一張`;
+        ? `這 1 張撐不到重置，剩下的票也不夠補滿，後段可能要放慢`
+        : `這 1 張撐不到重置，用完後再視當時用量決定下一張`;
   return {
     estimatedNeeded,
     hoursPerCredit,
