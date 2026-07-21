@@ -58,9 +58,12 @@ export function formatCompactCountdown(iso: string | undefined, nowMs = Date.now
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
-  if (days > 0) return `${days}天${hours}時`;
-  if (hours > 0) return `${hours}時${minutes}分`;
-  return `${minutes}分`;
+  // Durations must not read as clock times: 「18時32分」is exactly how Chinese writes 18:32,
+  // and this widget also shows real reset moments, so the two were indistinguishable. the trailing 後
+  // marks it as a span until something rather than an hour of the day.
+  if (days > 0) return `${days}天${hours}時後`;
+  if (hours > 0) return `${hours}時${minutes}分後`;
+  return `${minutes}分後`;
 }
 
 export function pct(value: number | undefined, digits = 0): string {
