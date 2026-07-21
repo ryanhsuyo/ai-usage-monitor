@@ -85,7 +85,10 @@ export function createLocalUsageCollector(
       const previous = sourceStatuses.find((status) => status.adapterId === `${providerId}-local`);
       try {
         const result = await invoke<LocalUsageReading[]>(command);
-        const sourceCapturedAt = result.map((reading) => reading.capturedAt).filter(Boolean).sort().at(-1) ?? ranAt;
+        // Index access rather than .at(-1): the project targets ES2021, where .at() is not in
+        // lib, and a fresh clone fails `pnpm typecheck` on it.
+        const capturedTimes = result.map((reading) => reading.capturedAt).filter(Boolean).sort();
+        const sourceCapturedAt = capturedTimes[capturedTimes.length - 1] ?? ranAt;
         const staleError = providerId === "claude" && result.some((reading) => reading.quotaStale)
           ? "Claude 有新活動，但官方 /usage 快取尚未更新；目前不顯示舊額度百分比"
           : undefined;
