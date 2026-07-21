@@ -108,3 +108,7 @@ Notifications 頁 → 新增通知管道 → 選類型 → 貼上 Webhook URL / 
 ## Roadmap
 
 Phase 2：本機額度整合已完成，後續補自動活動與 context warning → Phase 3：Browser 用量同步 → Phase 4：Windows → Phase 5：簽章與公開發布。詳見 [docs/roadmap.md](docs/roadmap.md)。
+
+## 授權
+
+[MIT](LICENSE)。
