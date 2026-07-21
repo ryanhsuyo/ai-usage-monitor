@@ -117,7 +117,7 @@ function StripProviderRow({
     remainingPercent: latest?.remainingPercent, windowHours,
   });
   const meta = provider === "codex" ? codexMeta(latest?.note) : undefined;
-  const resetCredits = summarizeResetCredits(meta?.resetAvailableCount ?? 0, meta?.resetCredits ?? [], new Date(now).toISOString(), 72, used, latest?.resetAt);
+  const resetCredits = summarizeResetCredits(meta?.resetAvailableCount ?? 0, meta?.resetCredits ?? [], new Date(now).toISOString(), 72, used, latest?.resetAt, forecast.burnRate24h);
   const visibleLabel = provider === "codex"
     ? `${label}·票${meta?.resetCreditsAvailable ? resetCredits.availableCount : "?"}`
     : label;
@@ -140,7 +140,7 @@ function StripProviderRow({
     month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit",
   }).format(new Date(iso)) : "資料不足";
   const resetCreditTooltip = resetCredits.availableCount > 0
-    ? `\n可用 Full reset：${resetCredits.availableCount} 張${resetCredits.recommendations.length ? `\n${resetCredits.recommendations.map((item, index) => `第 ${index + 1} 張 ${fullDate(item.expiresAt)} 到期：${item.message}；最晚 ${fullDate(item.latestUseAt)}`).join("\n")}` : "（未提供到期明細）"}`
+    ? `\n可用 Full reset：${resetCredits.availableCount} 張${resetCredits.plan ? `\n${resetCredits.plan.message}` : ""}${resetCredits.recommendations.length ? `\n${resetCredits.recommendations.map((item, index) => `第 ${index + 1} 張 ${fullDate(item.expiresAt)} 到期：${item.message}；最晚 ${fullDate(item.latestUseAt)}`).join("\n")}` : "（未提供到期明細）"}`
     : "";
   const tooltip = quotaStale
     ? `${label}：偵測到較新的 Claude 活動，但官方額度快取仍停在 ${claude?.quotaCapturedAt ? fullDate(claude.quotaCapturedAt) : "較早時間"}\n舊的 ${Math.round(used)}% 暫不顯示；Token／API 等值仍由本機活動計算`
@@ -162,7 +162,7 @@ function StripProviderRow({
     {meta && <div className="strip-hover" role="tooltip">
       <div><strong>Codex 成本</strong><b>{costLabel}</b></div>
       <small>{new Intl.NumberFormat("zh-TW", { notation: "compact", maximumFractionDigits: 1 }).format(tokenTotal ?? 0)} tokens · API 等值，非實際扣款</small>
-      {resetCredits.availableCount > 0 && <><div className={resetCredits.expiringSoon ? "reset-credit-warning" : ""}><strong>Full reset</strong><b>{resetCredits.availableCount} 張 · {resetCredits.recommendations[0]?.action === "use_now" ? "建議現在用" : `最近 ${resetCredits.nearestExpiry ? new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(resetCredits.nearestExpiry)) : "日期未知"}到期`}</b></div><small>{resetCredits.recommendations[0]?.message} · 全部：{resetCredits.expiryDates.length ? resetCredits.expiryDates.map((date) => new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(date))).join("、") : "未提供明細"}</small></>}
+      {resetCredits.availableCount > 0 && <><div className={resetCredits.expiringSoon ? "reset-credit-warning" : ""}><strong>Full reset</strong><b>{resetCredits.availableCount} 張 · {resetCredits.recommendations[0]?.action === "use_now" ? "建議現在用" : `最近 ${resetCredits.nearestExpiry ? new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(resetCredits.nearestExpiry)) : "日期未知"}到期`}</b></div><small>{resetCredits.plan?.message ?? resetCredits.recommendations[0]?.message} · 全部：{resetCredits.expiryDates.length ? resetCredits.expiryDates.map((date) => new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(date))).join("、") : "未提供明細"}</small></>}
     </div>}
     {claude && <div className="strip-hover" role="tooltip">
       <div><strong>Claude 近 24 小時</strong><b>API 等值 US${claudeCost.toFixed(2)}</b></div>

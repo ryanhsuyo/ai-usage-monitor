@@ -100,7 +100,8 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
       ctx.now,
       72,
       ctx.currentUsedPercent ?? 0,
-      ctx.nextResetAt
+      ctx.nextResetAt,
+      ctx.forecast?.burnRate24h
     );
     const first = credits.recommendations[0];
     if (first && (credits.expiringSoon || first.action === "use_now")) {
@@ -113,8 +114,13 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
           eventType: "quota_expiring",
           anchorIso: first.expiresAt,
         }),
-        title: `Codex Full reset 票券${first.action === "use_now" ? "建議現在使用" : "即將到期"}`,
-        body: `目前有 ${credits.availableCount} 張可用，最早一張將於 ${formatLocal(first.expiresAt)} 到期。\n${first.message}；依目前資料，最晚安全使用時間約為 ${formatLocal(first.latestUseAt)}。`,
+        // "建議現在使用" next to a count of three read as "spend all three"; credits are only
+        // ever spent one at a time, so the headline and body both say how many to use now.
+        title: `Codex Full reset 票券${first.action === "use_now" ? "建議使用 1 張" : "即將到期"}`,
+        body:
+          `目前有 ${credits.availableCount} 張可用，最早一張將於 ${formatLocal(first.expiresAt)} 到期。\n` +
+          `${credits.plan?.message ?? first.message}。\n` +
+          `最晚安全使用時間約為 ${formatLocal(first.latestUseAt)}。`,
         severity: first.action === "use_now" ? "warning" : "info",
       });
     }
