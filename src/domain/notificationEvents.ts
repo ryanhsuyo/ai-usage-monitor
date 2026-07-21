@@ -13,7 +13,7 @@ import type {
   ProviderId,
   Severity,
 } from "./types";
-import { hoursBetween, isValidIso } from "./util";
+import { formatLocalDateTime, formatUntil, hoursBetween, isValidIso } from "./util";
 import { computeQuotaExpiry } from "./quotaExpiry";
 import { summarizeResetCredits, type ResetCreditExpiry } from "./resetCredits";
 
@@ -61,16 +61,7 @@ function hourBucketIso(iso: string): string {
   return d.toISOString();
 }
 
-// The product speaks zh-TW everywhere, but toLocaleString() follows the runtime locale, which
-// rendered notification times as "7/18/2026, 7:59:59 PM" inside otherwise-Chinese copy.
-const LOCAL_DATE_TIME = new Intl.DateTimeFormat("zh-TW", {
-  month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit",
-});
-
-function formatLocal(iso: string | undefined): string {
-  if (!iso || !isValidIso(iso)) return "未知時間";
-  return LOCAL_DATE_TIME.format(new Date(Date.parse(iso)));
-}
+const formatLocal = formatLocalDateTime;
 
 /**
  * Durations in reader-friendly units. Hours alone forced "距離重置仍有 168 小時" onto weekly
@@ -153,7 +144,7 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
         // remainder by a few minutes produced advice like "每小時可使用約 242%".
         ((expiry.hoursUntilReset ?? 0) >= 1 && expiry.suggestedPercentPerHour !== undefined
           ? `\n若希望在到期前充分使用，平均每小時可使用約 ${Math.max(1, Math.round(expiry.suggestedPercentPerHour))}%。`
-          : `\n距離重置${formatDuration(expiry.hoursUntilReset ?? 0)}，剩餘額度可能來不及用完。`),
+          : `\n距離重置${formatUntil(ctx.nextResetAt, formatDuration(expiry.hoursUntilReset ?? 0))}，剩餘額度可能來不及用完。`),
       severity: "info",
     });
   }
@@ -226,7 +217,9 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
         (hoursToExhaust < 1
           ? "依目前速度，預估不到 1 小時就會耗盡。"
           : `依目前速度，預估${formatDuration(hoursToExhaust)}後耗盡。`) +
-        (hoursToReset !== undefined ? `\n距離重置還有${formatDuration(hoursToReset)}。` : ""),
+        (hoursToReset !== undefined
+          ? `\n距離重置還有${formatUntil(ctx.nextResetAt, formatDuration(hoursToReset))}。`
+          : ""),
       severity: "warning",
     });
   }

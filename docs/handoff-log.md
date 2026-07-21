@@ -1,5 +1,16 @@
 # Handoff Log
 
+## 2026-07-21 — 重置與票券建議直接給出日期
+
+- 使用者回報：通知只說「距離重置還有約 5 天」，而 Reset 票券建議只說「先等官方重置」——要判斷「哪天用票划算」還得自己換算日期。
+- `util.ts` 新增共用的 `formatLocalDateTime`（zh-TW，與小工具 tooltip 同格式）與 `formatUntil`（把「時長」與「落在哪一刻」綁在一起）；`notificationEvents.ts` 原本自己寫了一份 `Intl.DateTimeFormat`，改為共用，去掉重複。
+- 三處文案補上實際日期：
+  - exhaustion_forecast：`距離重置還有約 5 天（7/25（週六） 下午08:00）`
+  - quota_expiring 的重置在即分支：同樣附日期
+  - `resetCredits`：`先等 7/25（週六） 下午08:00 官方重置，下一輪達 80% 再用`
+- 小工具與極簡列的票券 hover 直接吃 domain 的 message，因此一併生效，不需改 UI。
+- 測試：新增「票券建議必須含實際日期」的斷言（`/7\/25/`），並更新一個仍在斷言舊文案的既有測試。200 tests 全綠。
+
 ## 2026-07-20 — Discord 改為純文字（修正我自己稍早的錯誤判斷）
 
 - 使用者回報 Discord 出現**完全空白**的訊息。查 delivery 紀錄：內容是完整的（「Claude 週額度即將用完／剩餘額度約 7%」），把當下程式產生的 payload 印出來也完全合法（title／description／color／footer／timestamp 齊全）——所以是客戶端沒有渲染 embed。

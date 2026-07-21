@@ -1,3 +1,4 @@
+import { formatLocalDateTime } from "./util";
 export type ResetCreditExpiry = { title: string; expiresAtUnix?: number };
 
 export type ResetCreditSummary = {
@@ -40,8 +41,10 @@ export function summarizeResetCredits(
     const resetsBeforeExpiry = automaticResetAt
       && Date.parse(automaticResetAt) > now
       && Date.parse(automaticResetAt) < Date.parse(expiresAt);
+    // Name the official reset date. "先等官方重置" alone makes the reader work out when that
+    // is before they can judge which day spending a credit actually pays off.
     const message = resetsBeforeExpiry
-      ? "先等官方重置，下一輪達 80% 再用"
+      ? `先等 ${formatLocalDateTime(automaticResetAt)} 官方重置，下一輪達 80% 再用`
       : index === 0 ? "用量達 80% 再用" : "先用較早到期票券，輪到時達 80% 再用";
     return { expiresAt, latestUseAt, action: "wait", message };
   });

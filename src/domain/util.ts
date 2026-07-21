@@ -69,3 +69,24 @@ export function withoutOutliers(values: number[], iqrFactor: number): number[] {
 export function outlierCount(values: number[], iqrFactor: number): number {
   return values.length - withoutOutliers(values, iqrFactor).length;
 }
+
+// The product speaks zh-TW everywhere, so dates must not follow the runtime locale (which once
+// rendered "7/18/2026, 7:59:59 PM" inside otherwise-Chinese copy).
+const LOCAL_DATE_TIME = new Intl.DateTimeFormat("zh-TW", {
+  month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit",
+});
+
+/** A wall-clock moment the reader can act on, e.g. `7/25（週六） 下午08:00`. */
+export function formatLocalDateTime(iso: string | undefined): string {
+  if (!isValidIso(iso)) return "未知時間";
+  return LOCAL_DATE_TIME.format(new Date(Date.parse(iso)));
+}
+
+/**
+ * A duration paired with the moment it lands on. "還有約 5 天" alone forces the reader to work
+ * out the date before they can decide anything — which day to spend a reset credit, whether a
+ * quota outlasts a deadline.
+ */
+export function formatUntil(iso: string | undefined, duration: string): string {
+  return isValidIso(iso) ? `${duration}（${formatLocalDateTime(iso)}）` : duration;
+}
