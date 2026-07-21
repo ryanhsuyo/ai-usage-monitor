@@ -15,7 +15,7 @@
   - `aggregate_daily_usage(lines, utc_offset)`：成本頁的每日×模型彙總。
   - `claude_limit_descriptor(limit)`：官方 `limits` 陣列 → App 額度模型（kind／名稱／視窗／key／重置時間）。
 - 新增 8 個測試，全部餵真實 JSON 形狀：token 加總與 TTL 分項、跨檔案 message id 去重、非計費行（壞 JSON／無 usage／無 id／`<synthetic>`／無時間戳）一律略過、時區分桶（23:30Z 在 UTC+8 屬隔天）、三種 limit kind 的映射與 key 穩定性、無法辨識的 kind 必須跳過而非猜測、滿額暫停需「全部」額度皆滿且未到期、RFC3339 解析。
-- **以故障注入驗證測試有效**：把 `ephemeral_5m_input_tokens` 改名 → 彙總測試失敗；把 `/scope/model/display_name` 改路徑 → 映射測試失敗。重構後實機 live 測試仍通過（真實 數百 MB 歷史）。
+- **以故障注入驗證測試有效**：把 `ephemeral_5m_input_tokens` 改名 → 彙總測試失敗；把 `/scope/model/display_name` 改路徑 → 映射測試失敗。重構後實機 live 測試仍通過（跑在本機完整 transcript 歷史上）。
 - 驗收：cargo test 8 passed／typecheck／lint／199 vitest／tauri build 全綠。
 
 ## 2026-07-20 — 「同步失敗」通知從死碼變成真的會發
@@ -72,7 +72,7 @@
   2. `isSameCycleEvent`：錨點相差在 `CYCLE_ANCHOR_TOLERANCE_MS`（30 分）內即視為同一週期，徹底免疫量化邊界翻轉。dispatcher 改以「管道 + 近 30 天」查詢既有 delivery 再做容差比對（`listDeliveries` 新增 `attemptedSince` 以限制掃描量）。
 - 額外語意修正：`remainingPercent` ≤ `EXHAUSTED_REMAINING_PERCENT`（1%）時不再送 exhaustion_forecast——額度都用完了還說「預估 0 小時後耗盡」毫無意義；該週期的 usage_warning 仍會發一次。
 - **解析陷阱（差點漏掉）**：真實 key 是 `codex:weekly:lim-0c36:exhaustion_forecast:…`，limitKey 自身含冒號，最初「取前三段」的解法在單元測試（簡化 key）中會過但實機完全無效。改為從右側正則抓取尾端 ISO，並把測試 key 全面換成含 limit id 的真實格式。
-- 以 7/19 起真實 delivery 紀錄回放驗證：重複的一律被擋下，其餘照常送出（session/weekly 的 forecast 與 warning 各佔大宗）。
+- 以本機真實 delivery 紀錄回放驗證：重複的那些一律被擋下，其餘照常送出（session/weekly 的 forecast 與 warning 各佔大宗）。
 - 驗收：typecheck／lint／188 tests／tauri build 全綠。
 
 ## 2026-07-20 — 靜音時間輸入寬鬆化
@@ -106,12 +106,12 @@
 ## 2026-07-19 — ccusage 風格成本統計頁
 
 - 需求：像 `npx ccusage daily/weekly/monthly` 一樣看見「到底花了多少」。
-- Rust 新增 `read_claude_usage_daily(utc_offset_minutes)`：掃描 `~/.claude/projects` 全部 jsonl，依 `message.id`（fallback `requestId`）跨檔案去重、跳過 `<synthetic>`，以呼叫端時區把 timestamp 分桶成每日×模型 token 統計。live 測試（`cargo test -- --ignored`）實測 數百 MB 的本機歷史約 0.46 秒。
+- Rust 新增 `read_claude_usage_daily(utc_offset_minutes)`：掃描 `~/.claude/projects` 全部 jsonl，依 `message.id`（fallback `requestId`）跨檔案去重、跳過 `<synthetic>`，以呼叫端時區把 timestamp 分桶成每日×模型 token 統計。live 測試（`cargo test -- --ignored`）在數百 MB 的本機歷史上約 0.5 秒完成。
 - Domain 新增 `usageStats.ts`：`aggregateClaudeUsage` 聚合 daily／weekly（ISO 週一起算）／monthly，含每模型 API 等值成本、未定價模型旗標；`summarizeUsagePeriods` 出全期間總計。10 個新 Vitest。
 - `claudeCost.ts` 定價表改為官方牌價並補齊模型（Fable/Mythos $10/$50、Opus 4.5–4.8 $5/$25、Sonnet 4.5–5 $3/$15、Haiku 4.5 $1/$5；cache 寫 1.25×、讀 0.1×），新增 `claudePrice` 前綴比對支援 `claude-haiku-4-5-20251001` 這類帶日期字尾 ID。注意：既有 Fable 12/70 舊估價修正為官方 10/50，UI 各處 API 等值金額會略降。
 - UI 新增 `usageStats` 頁與側欄「成本統計」：期間彙總卡片＋表格（多模型期間逐模型分項）、每日／每週／每月切換；瀏覽器模式如實顯示需桌面 App。已在瀏覽器預覽驗證路由與空狀態、以 live 測試驗證真實資料路徑。
 - 快取寫入依 TTL 計價：解析 transcript `usage.cache_creation.ephemeral_5m/1h_input_tokens`，5 分鐘寫入 1.25×、1 小時寫入 2×（Claude Code 即為 1h TTL；無分項時保守以 1h 計）；Sonnet 5 促銷價（$2/$10）計至 2026-08-31 由 `claudePrice(model, nowIso)` 自動切換。
-- 與 `npx ccusage@latest monthly --json` 實測對帳：2026-07 Claude 四模型（fable/opus/sonnet/haiku）成本差距 0.02%–0.3%（時間差與月界時區），sonnet 分毫不差；合計 兩者差距在 0.3% 以內。
+- 與 `npx ccusage@latest monthly --json` 對同一份本機資料交叉驗證：四個模型（fable/opus/sonnet/haiku）逐項成本差距 0.02%–0.3%（來自兩次執行的時間差與月界時區），sonnet 完全一致。
 - 全數驗收綠：typecheck／lint／167 tests／cargo check／tauri build。
 
 ## 2026-07-19 — 未簽章 build 不再反覆觸發 Keychain 授權彈窗
