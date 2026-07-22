@@ -67,6 +67,55 @@ fn position_for_target_size(
     Ok(())
 }
 
+/// Layout cost of one strip element, in logical points, per size preset.
+///
+/// The strip window is not resizable, so a height that does not fit the content silently crops it
+/// — `.strip-summary` centres its rows and hides the overflow, which trims equally from the top and
+/// bottom and leaves no scrollbar to notice. A fixed height therefore only ever suited one row
+/// count; four limits plus the reset-credit block already overflowed the old 150pt default.
+///
+/// Measured against the rendered layout at each preset. If the strip's paddings, gaps or font
+/// sizes change in `global.css`, re-measure these.
+struct StripMetrics {
+    width: f64,
+    min_width: f64,
+    /// Top + bottom padding of `.strip-summary`.
+    chrome: f64,
+    gap: f64,
+    row: f64,
+    /// `.strip-reset-tickets`, which stacks the credit count, the quota reset and the expiry dates.
+    tickets: f64,
+}
+
+fn strip_metrics(size: Option<&str>) -> StripMetrics {
+    match size {
+        Some("small") => StripMetrics { width: 240.0, min_width: 210.0, chrome: 34.0, gap: 4.0, row: 18.0, tickets: 33.0 },
+        Some("large") => StripMetrics { width: 330.0, min_width: 290.0, chrome: 41.0, gap: 6.0, row: 25.0, tickets: 44.0 },
+        _ => StripMetrics { width: 280.0, min_width: 250.0, chrome: 38.0, gap: 5.0, row: 20.0, tickets: 39.0 },
+    }
+}
+
+fn strip_width(size: Option<&str>) -> f64 {
+    strip_metrics(size).width
+}
+
+fn strip_min_width(size: Option<&str>) -> f64 {
+    strip_metrics(size).min_width
+}
+
+fn strip_height(size: Option<&str>, rows: Option<u32>, tickets: bool) -> f64 {
+    let m = strip_metrics(size);
+    // Clamped rather than trusted: the row count crosses the IPC boundary, and an absurd value
+    // would produce a window taller than the screen.
+    let rows = f64::from(rows.unwrap_or(3).clamp(1, 8));
+    let stack = m.row * rows + m.gap * (rows - 1.0);
+    // A few points of slack. The metrics were measured on one machine, and text that renders
+    // even fractionally taller elsewhere would be cropped rather than merely tight — an exact
+    // fit leaves no margin for that, and the failure is silent.
+    const SLACK: f64 = 4.0;
+    m.chrome + stack + if tickets { m.gap + m.tickets } else { 0.0 } + SLACK
+}
+
 #[tauri::command]
 fn set_window_mode(
     app: tauri::AppHandle,
@@ -76,6 +125,8 @@ fn set_window_mode(
     mode: String,
     pinned: bool,
     strip_size: Option<String>,
+    strip_rows: Option<u32>,
+    strip_tickets: Option<bool>,
 ) -> Result<(), String> {
     let widget = mode != "full";
     let strip = mode == "strip";
@@ -83,11 +134,12 @@ fn set_window_mode(
         return Err(format!("未知的視窗模式：{mode}"));
     }
     let (width, height, min_width, min_height) = if strip {
-        match strip_size.as_deref() {
-            Some("small") => (240.0, 134.0, 210.0, 90.0),
-            Some("large") => (330.0, 172.0, 290.0, 120.0),
-            _ => (280.0, 150.0, 250.0, 100.0),
-        }
+        (
+            strip_width(strip_size.as_deref()),
+            strip_height(strip_size.as_deref(), strip_rows, strip_tickets.unwrap_or(false)),
+            strip_min_width(strip_size.as_deref()),
+            strip_height(strip_size.as_deref(), Some(1), false),
+        )
     } else if widget {
         (240.0, 300.0, 220.0, 250.0)
     } else {
@@ -360,4 +412,43 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running AI Usage Monitor");
+}
+
+#[cfg(test)]
+mod strip_layout_tests {
+    use super::strip_height;
+
+    /// The numbers on the right are the rendered content heights measured in the browser at each
+    /// preset. The window must be at least that tall, or `.strip-summary` crops rows silently.
+    #[test]
+    fn height_covers_the_rendered_content() {
+        // 4 limits + the Codex reset-credit block — the layout that overflowed the old fixed 150.
+        assert_eq!(strip_height(None, Some(4), true), 38.0 + 80.0 + 15.0 + 5.0 + 39.0 + 4.0);
+        assert!(strip_height(None, Some(4), true) > 150.0, "the old fixed height cropped this");
+        // Without credits the block costs nothing, including its gap.
+        assert_eq!(strip_height(None, Some(4), false), 38.0 + 80.0 + 15.0 + 4.0);
+        // A single row has no inter-row gap to pay for.
+        assert_eq!(strip_height(None, Some(1), false), 38.0 + 20.0 + 4.0);
+    }
+
+    #[test]
+    fn every_preset_grows_with_its_content() {
+        for size in [Some("small"), None, Some("large")] {
+            let one = strip_height(size, Some(1), false);
+            assert!(strip_height(size, Some(4), false) > one);
+            assert!(strip_height(size, Some(4), true) > strip_height(size, Some(4), false));
+        }
+        // Larger presets use larger type, so the same content needs more room.
+        assert!(strip_height(Some("large"), Some(4), true) > strip_height(None, Some(4), true));
+        assert!(strip_height(None, Some(4), true) > strip_height(Some("small"), Some(4), true));
+    }
+
+    #[test]
+    fn an_absurd_row_count_cannot_produce_an_offscreen_window() {
+        // The count crosses the IPC boundary; clamping keeps a bad value from resizing the window
+        // past the screen. Zero rows still needs room for the chrome.
+        assert_eq!(strip_height(None, Some(9_999), true), strip_height(None, Some(8), true));
+        assert_eq!(strip_height(None, Some(0), false), strip_height(None, Some(1), false));
+        assert_eq!(strip_height(None, None, false), strip_height(None, Some(3), false));
+    }
 }

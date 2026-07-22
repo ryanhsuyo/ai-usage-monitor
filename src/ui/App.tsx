@@ -68,12 +68,14 @@ function codexCostTooltip(meta: CodexMeta | undefined): string {
 }
 
 function compactLimitLabel(provider: string, limit: { name: string; type: string; model?: string }) {
+  // Kept short on purpose: the strip row shares one line with the percentage and the countdown,
+  // and the label is the only part that ellipsises when it runs out of room.
   if (provider !== "claude") return PROVIDER_LABELS[provider] ?? provider;
-  if (limit.type === "rolling_session") return "Claude 5 小時（訂閱）";
-  if (limit.type === "weekly_model") return `${limit.model ?? limit.name.match(/[（(](.+?)[）)]/)?.[1] ?? "模型"} 本週`;
+  if (limit.type === "rolling_session") return "Claude 5HR sub";
+  if (limit.type === "weekly_model") return `${limit.model ?? limit.name.match(/[（(](.+?)[）)]/)?.[1] ?? "模型"} weekly`;
   const scoped = limit.name.match(/[（(](.+?)[）)]/)?.[1];
-  if (scoped && scoped !== "全模型") return `${scoped} 本週`;
-  return "Claude 全模型本週";
+  if (scoped && scoped !== "全模型") return `${scoped} weekly`;
+  return "Claude weekly";
 }
 
 function stripTimeLabel(iso: string | undefined, now: number) {
@@ -178,6 +180,39 @@ function StripProviderRow({
   </div>;
 }
 
+/**
+ * The rows the widget and strip actually show, in display order.
+ *
+ * Shared with `WindowControls` because the strip window is sized from this count — the two must
+ * agree, or the window is built for a different number of rows than gets rendered into it.
+ */
+function selectWidgetLimits(store: ReturnType<typeof useAppStore.getState>) {
+  const active = store.limits
+    .filter((limit) => limit.active)
+    .map((limit) => {
+      const plan = store.plans.find((item) => item.id === limit.planId);
+      const latest = latestValid(store.snapshotsByLimit[limit.id] ?? []);
+      return { limit, plan, latest };
+    });
+  const providersWithData = new Set(active.filter((item) => item.latest).map((item) => item.plan?.providerId));
+  return active
+    .filter((item) => item.latest || !providersWithData.has(item.plan?.providerId))
+    .sort((a, b) => {
+      const priority = (item: typeof a) => {
+        const provider = item.plan?.providerId;
+        if (provider === "claude") {
+          if (item.limit.type === "rolling_session") return 0;
+          if (item.limit.resetRule?.includes("weekly_all")) return 1;
+          return 2;
+        }
+        if (provider === "codex") return 3;
+        return 4;
+      };
+      return priority(a) - priority(b);
+    })
+    .slice(0, 4);
+}
+
 function WindowControls() {
   const [widgetMode, setWidgetMode] = useState(() => localStorage.getItem(WIDGET_MODE_KEY) === "true");
   const [alwaysOnTop, setAlwaysOnTopState] = useState(() => localStorage.getItem(ALWAYS_ON_TOP_KEY) === "true");
@@ -185,6 +220,12 @@ function WindowControls() {
   const stripSize = useAppStore((state) => settingStripSize(state.settings[SETTINGS_KEYS.stripSize]));
   const widgetIdleOpacity = useAppStore((state) => Math.min(100, Math.max(40, settingNum(state.settings[SETTINGS_KEYS.widgetIdleOpacity], 72))));
   const widgetHoverOpaque = useAppStore((state) => settingBool(state.settings[SETTINGS_KEYS.widgetHoverOpaque], true));
+  // What the strip will actually render. Limits arrive after the first paint and the Codex credit
+  // block appears the first time credits are read, so both grow the window after mount.
+  const stripRows = useAppStore((state) => selectWidgetLimits(state).length);
+  const stripTickets = useAppStore((state) =>
+    selectWidgetLimits(state).some((item) => codexMeta(item.latest?.note) !== undefined)
+  );
 
   async function applyWindow(widget: boolean, pinned: boolean, strip = stripMode) {
     document.documentElement.classList.toggle("widget-mode", widget);
@@ -195,7 +236,15 @@ function WindowControls() {
     document.documentElement.style.setProperty("--widget-idle-opacity", String(widgetIdleOpacity / 100));
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("set_window_mode", { mode: widget ? strip ? "strip" : "widget" : "full", pinned, stripSize });
+      // The strip is not resizable, so its height has to be asked for: too short and the rows are
+      // cropped without a scrollbar to show it.
+      await invoke("set_window_mode", {
+        mode: widget ? strip ? "strip" : "widget" : "full",
+        pinned,
+        stripSize,
+        stripRows,
+        stripTickets,
+      });
     } catch {
       // Running in a regular browser: keep the responsive preview, skip native window controls.
     }
@@ -207,7 +256,7 @@ function WindowControls() {
 
   useEffect(() => {
     if (widgetMode && stripMode) void applyWindow(true, alwaysOnTop, true);
-  }, [stripSize, widgetIdleOpacity, widgetHoverOpaque]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stripSize, widgetIdleOpacity, widgetHoverOpaque, stripRows, stripTickets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -463,30 +512,7 @@ export function App() {
   const ready = useBootstrap();
   const store = useAppStore();
 
-  const activeWidgetLimits = store.limits
-    .filter((limit) => limit.active)
-    .map((limit) => {
-      const plan = store.plans.find((item) => item.id === limit.planId);
-      const latest = latestValid(store.snapshotsByLimit[limit.id] ?? []);
-      return { limit, plan, latest };
-    });
-  const providersWithData = new Set(activeWidgetLimits.filter((item) => item.latest).map((item) => item.plan?.providerId));
-  const widgetLimits = activeWidgetLimits
-    .filter((item) => item.latest || !providersWithData.has(item.plan?.providerId))
-    .sort((a, b) => {
-      const priority = (item: typeof a) => {
-        const provider = item.plan?.providerId;
-        if (provider === "claude") {
-          if (item.limit.type === "rolling_session") return 0;
-          if (item.limit.resetRule?.includes("weekly_all")) return 1;
-          return 2;
-        }
-        if (provider === "codex") return 3;
-        return 4;
-      };
-      return priority(a) - priority(b);
-    })
-    .slice(0, 4);
+  const widgetLimits = selectWidgetLimits(store);
   const codexWidget = widgetLimits.find((item) => (item.plan?.providerId ?? item.latest?.providerId) === "codex");
   const codexWidgetMeta = codexMeta(codexWidget?.latest?.note);
   // Feed the strip footer the same context the hover panels get. Without current usage and the
@@ -599,7 +625,10 @@ export function App() {
           {codexWidgetMeta.resetCreditsAvailable
             ? <>
                 <strong>Reset {codexWidgetTickets.availableCount} 張{codexTicketAdvice ? ` · ${codexTicketAdvice}` : ""}</strong>
-                <span>{[codexResetMoment && `重置 ${codexResetMoment}`, codexTicketDates.length ? `到期 ${codexTicketDates.join("、")}` : "無可用票券"].filter(Boolean).join(" · ")}</span>
+                {/* The quota's own reset and the credits' expiry dates are unrelated moments —
+                    sharing one line made them read as a single range. */}
+                {codexResetMoment && <span>重置 {codexResetMoment}</span>}
+                <span>{codexTicketDates.length ? `到期 ${codexTicketDates.join("、")}` : "無可用票券"}</span>
               </>
             : <><strong>Reset 票券</strong><span>同步中，將自動重試</span></>}
         </div>}

@@ -1,5 +1,15 @@
 # Handoff Log
 
+## 2026-07-22 — 極簡列標籤縮短、票券區拆行，橫條高度改為依列數計算
+
+- 使用者要求：額度重置時刻與 reset 票券到期日不要擠在同一行（是兩個無關的時間點，並排會讀成一段區間），標籤縮短為 `Claude 5HR sub`／`Claude weekly`／`Fable weekly`。
+- `compactLimitLabel` 依指定改寫；`strip-reset-tickets` 由 flex 單行改為 grid 三行（票數／重置時刻／到期日）。
+- **順帶抓到既有缺陷**：橫條視窗 `set_resizable(false)`，高度是 Rust 端寫死的三檔常數，不看實際列數。`.strip-summary` 是 `height:100vh` + `justify-content:center` + `overflow:hidden`——溢出時上下對稱裁掉，沒有捲軸也不會反映在 `scrollHeight`，**靜默裁切**。實測 4 條額度時內容 138.8pt、可用 112pt，舊版單行票券就已經溢出約 3pt；改成三行會溢出 26.8pt。
+- 修正：`strip_height(size, rows, tickets)` 依列數計算，度量值（padding／gap／列高／票券區高）在瀏覽器實測三個尺寸檔後寫進 Rust，另加 4pt 緩衝（度量只在一台機器上做，字型渲染略高就會再次靜默裁切）。列數經 IPC 傳入故 clamp 1–8。
+- `widgetLimits` 的推導抽成 `selectWidgetLimits(store)`，由 `App` 與 `WindowControls` 共用——視窗是照這個數字開的，兩邊算法必須一致。
+- 驗證：Rust 新增 3 個 `strip_layout_tests`（涵蓋實測值、各檔隨內容增長、異常列數 clamp）；瀏覽器實測 280×181 下內容 138.8／可用 143，餘裕 4.2pt，四個標籤皆未被 ellipsis 截斷。12 Rust + 213 TS 全綠。
+- **副作用**：使用者的橫條(4 條額度 + Codex 票券)會從 150pt 變成 181pt。
+
 ## 2026-07-22 — 「已用完」獨立成一則通知，預設事件收斂為四種
 
 - 使用者列出他預期的通知集合：正常重置一次、剩 10% 一次、異常重置一次、用完一次；並回報 Fable 週額度到 100% 卻沒收到通知。
