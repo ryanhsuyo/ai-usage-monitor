@@ -83,15 +83,15 @@ struct StripMetrics {
     chrome: f64,
     gap: f64,
     row: f64,
-    /// `.strip-reset-tickets`, which stacks the credit count, the quota reset and the expiry dates.
+    /// `.strip-reset-tickets`, which stacks the credit count and the credits' expiry dates.
     tickets: f64,
 }
 
 fn strip_metrics(size: Option<&str>) -> StripMetrics {
     match size {
-        Some("small") => StripMetrics { width: 240.0, min_width: 210.0, chrome: 34.0, gap: 4.0, row: 18.0, tickets: 33.0 },
-        Some("large") => StripMetrics { width: 330.0, min_width: 290.0, chrome: 41.0, gap: 6.0, row: 25.0, tickets: 44.0 },
-        _ => StripMetrics { width: 280.0, min_width: 250.0, chrome: 38.0, gap: 5.0, row: 20.0, tickets: 39.0 },
+        Some("small") => StripMetrics { width: 240.0, min_width: 210.0, chrome: 34.0, gap: 4.0, row: 18.0, tickets: 24.0 },
+        Some("large") => StripMetrics { width: 330.0, min_width: 290.0, chrome: 41.0, gap: 6.0, row: 25.0, tickets: 31.0 },
+        _ => StripMetrics { width: 280.0, min_width: 250.0, chrome: 38.0, gap: 5.0, row: 20.0, tickets: 28.0 },
     }
 }
 
@@ -423,7 +423,7 @@ mod strip_layout_tests {
     #[test]
     fn height_covers_the_rendered_content() {
         // 4 limits + the Codex reset-credit block — the layout that overflowed the old fixed 150.
-        assert_eq!(strip_height(None, Some(4), true), 38.0 + 80.0 + 15.0 + 5.0 + 39.0 + 4.0);
+        assert_eq!(strip_height(None, Some(4), true), 38.0 + 80.0 + 15.0 + 5.0 + 28.0 + 4.0);
         assert!(strip_height(None, Some(4), true) > 150.0, "the old fixed height cropped this");
         // Without credits the block costs nothing, including its gap.
         assert_eq!(strip_height(None, Some(4), false), 38.0 + 80.0 + 15.0 + 4.0);

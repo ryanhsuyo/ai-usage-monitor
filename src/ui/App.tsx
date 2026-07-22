@@ -123,8 +123,9 @@ function StripProviderRow({
   });
   const meta = provider === "codex" ? codexMeta(latest?.note) : undefined;
   const resetCredits = summarizeResetCredits(meta?.resetAvailableCount ?? 0, meta?.resetCredits ?? [], new Date(now).toISOString(), 72, used, latest?.resetAt, forecast.burnRate24h);
-  const visibleLabel = provider === "codex"
-    ? `${label}·票${meta?.resetCreditsAvailable ? resetCredits.availableCount : "?"}`
+  // The credit count is not repeated here: the block below the rows already leads with it.
+  const visibleLabel = provider === "codex" && !meta?.resetCreditsAvailable
+    ? `${label}·票?`
     : label;
   const claude = provider === "claude" ? claudeMeta(latest?.note) : undefined;
   const quotaStale = claude?.quotaStale === true;
@@ -135,13 +136,20 @@ function StripProviderRow({
   const inlineCost = meta?.apiEquivalentUsd !== undefined
     ? `${meta.unpricedModels?.length ? "≥ " : ""}US$${meta.apiEquivalentUsd.toFixed(2)}`
     : claude && hasPricedClaudeModel ? `US$${claudeCost.toFixed(2)}` : undefined;
+  // A row holding reset credits shows the wall-clock reset next to the countdown: deciding whether
+  // to spend a credit means comparing its expiry date against the date the quota returns by itself,
+  // and "4d0h" cannot be compared with "7/28" at a glance.
+  const resetMoment = resetCredits.availableCount > 0 && latest?.resetAt
+    ? formatLocalDateTimeShort(latest.resetAt)
+    : undefined;
+  const resetText = `重置 ${reset ?? "--"}${resetMoment ? ` · ${resetMoment}` : ""}`;
   const visibleTiming = authNeedsLogin ? "需重新登入 Claude" : quotaStale ? "等待官方更新" : awaitingRefresh ? "等待新週期資料" : stripRightInfo === "reset"
-    ? `重置 ${reset ?? "--"}`
+    ? resetText
     : stripRightInfo === "exhaustion"
       ? `用完 ${exhaustion ?? "--"}`
       : stripRightInfo === "cost"
         ? `金額 ${inlineCost ?? "--"}`
-        : `重置 ${reset ?? "--"} · 用完 ${exhaustion ?? "--"}`;
+        : `${resetText} · 用完 ${exhaustion ?? "--"}`;
   const fullDate = (iso?: string) => iso ? formatLocalDateTime(iso) : "資料不足";
   const resetCreditTooltip = resetCredits.availableCount > 0
     ? `\n可用 Full reset：${resetCredits.availableCount} 張${resetCredits.plan ? `\n${resetCredits.plan.message}` : ""}${resetCredits.recommendations.length ? `\n${resetCredits.recommendations.map((item, index) => `第 ${index + 1} 張 ${fullDate(item.expiresAt)} 到期：${item.message}；最晚 ${fullDate(item.latestUseAt)}`).join("\n")}` : "（未提供到期明細）"}`
@@ -541,9 +549,6 @@ export function App() {
   const codexTicketDates = codexWidgetTickets.expiryDates.map((date) =>
     new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric" }).format(new Date(date))
   );
-  const codexResetMoment = codexWidgetSnapshot?.resetAt
-    ? formatLocalDateTimeShort(codexWidgetSnapshot.resetAt)
-    : undefined;
   const codexTicketAdvice = codexWidgetTickets.recommendations[0]?.action === "use_now"
     ? `建議用 1 張`
     : undefined;
@@ -625,9 +630,9 @@ export function App() {
           {codexWidgetMeta.resetCreditsAvailable
             ? <>
                 <strong>Reset {codexWidgetTickets.availableCount} 張{codexTicketAdvice ? ` · ${codexTicketAdvice}` : ""}</strong>
-                {/* The quota's own reset and the credits' expiry dates are unrelated moments —
-                    sharing one line made them read as a single range. */}
-                {codexResetMoment && <span>重置 {codexResetMoment}</span>}
+                {/* Only the credits belong here. The quota's own reset is a property of the quota,
+                    so it sits on the Codex row above; under a "Reset 3 張" heading it read as
+                    something the credits do. */}
                 <span>{codexTicketDates.length ? `到期 ${codexTicketDates.join("、")}` : "無可用票券"}</span>
               </>
             : <><strong>Reset 票券</strong><span>同步中，將自動重試</span></>}
