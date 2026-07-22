@@ -1,5 +1,16 @@
 # Handoff Log
 
+## 2026-07-22 — 「已用完」獨立成一則通知，預設事件收斂為四種
+
+- 使用者列出他預期的通知集合：正常重置一次、剩 10% 一次、異常重置一次、用完一次；並回報 Fable 週額度到 100% 卻沒收到通知。
+- **實查**：`usage_snapshots` 顯示 Fable 於 05:09 到 100%，同時刻 `scheduler_runs` 記錄 `success / 4 limits, 0 sent`。原因不是門檻也不是開關，是去重：7/20 08:34 已對同一週期發過 `claude:weekly:lim-8dae:usage_warning:2026-07-25T12:00`，而「剩 10%」與「已用完」共用這把 key，標題只是依剩餘量在兩種文案間切換。先發的那則吃掉了整個週期，額度填滿的過程完全無聲。
+- 修正：拆成 `usage_warning`（剩餘 ≤ 門檻）與新的 `usage_exhausted`（≤ `EXHAUSTED_REMAINING_PERCENT`），互斥且各自一把 key，同週期各發一次。測試除了斷言文案，另外釘住「兩者 eventKey 不同」——這正是原本的失效點。
+- **預設事件收斂**：依使用者選擇保留票券提醒，`reset_expected` 與 `exhaustion_forecast` 改為預設關閉（仍可逐額度開啟）。兩者都對「之後會自行解決」的狀態發話，出現頻率遠高於實際有用的次數。
+- `DEFAULT_CHANNEL_EVENT_PREFERENCES` 更名為 `DEFAULT_EVENT_PREFERENCES`，並讓 `isLimitNotificationEventEnabled` 也回退到它。原本每個額度硬編碼「未設定即開啟」，導致同一個事件在管道層預設關、在額度層預設開。
+- **migration 0003**：既有管道的 `event_preferences` 由舊版 onboarding 寫死了全部事件為 `true`，只改預設值碰不到它們。以 `json_remove` 只拔掉這兩個鍵，其餘偏好原封不動。已用使用者資料庫的副本乾跑驗證。
+- 驗證：213 TS + 9 Rust 全綠；另在 dev server 實際讀出通知設定頁的 40 個開關狀態，四種（含票券）為 on、其餘為 off，逐額度與逐管道一致。
+- **未做**：`reset_expected` 的文案「請開啟 App 更新或同步資料」在登入過期時是錯的（真因是 token 失效）。該事件現已預設關閉，故先不處理；若要修，需把 `auth_needs_login` 從 collector 一路帶進 `NotificationContext`。
+
 ## 2026-07-21 — 登入過期時明確提示重新登入，不再只顯示「等待官方更新」
 
 - 實查使用者「Claude 三條又抓不到」：官方資料停在 8.5 小時前。直接以 `get_usage` 控制協定測試，回應 `subscription_type: null`、`rate_limits_available: false`——Claude Code 的 OAuth token（Keychain 中 `expiresAt: 0`）已失效，CLI 直接短路（505ms 返回、未發網路請求）。

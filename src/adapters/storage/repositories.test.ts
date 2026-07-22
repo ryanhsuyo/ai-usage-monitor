@@ -186,7 +186,7 @@ describe("repository layer over SqlDatabase (spec §20 repository cases)", () =>
       eventPreferences: {
         quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: false,
         data_stale: false,

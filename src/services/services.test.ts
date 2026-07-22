@@ -77,7 +77,7 @@ async function saveChannel(
     eventPreferences: {
       quota_expiring: true, reset_expected: true,
       reset_confirmed: true,
-      usage_warning: true,
+      usage_warning: true, usage_exhausted: true,
       exhaustion_forecast: true,
       polling_failed: false,
       data_stale: false,
@@ -150,7 +150,7 @@ describe("NotificationDispatcher (spec §9 / §20 cases 19-23)", () => {
       eventPreferences: {
         quota_expiring: true, reset_expected: false,
         reset_confirmed: false, // this event type is off
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: false,
         data_stale: false,
@@ -218,7 +218,7 @@ describe("NotificationDispatcher (spec §9 / §20 cases 19-23)", () => {
       eventPreferences: {
         quota_expiring: true, reset_expected: true,
         reset_confirmed: true,
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: true,
         data_stale: true,
@@ -440,7 +440,7 @@ describe("Export / Import (spec §15 / §20 cases 24,25)", () => {
       eventPreferences: {
         quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: false,
         data_stale: false,

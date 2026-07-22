@@ -286,7 +286,7 @@ describe("notification event generation (spec §9)", () => {
     const events = evaluateNotificationEvents(spentForecast);
     expect(events.some((x) => x.eventType === "exhaustion_forecast")).toBe(false);
     // The user is still told once per cycle that the quota is gone.
-    expect(events.some((x) => x.eventType === "usage_warning")).toBe(true);
+    expect(events.some((x) => x.eventType === "usage_exhausted")).toBe(true);
     // Still forecast while there is meaningful quota left.
     expect(
       evaluateNotificationEvents({ ...spentForecast, remainingPercent: 12 })
@@ -336,15 +336,24 @@ describe("notification event generation (spec §9)", () => {
     expect(formatDuration(168)).toBe("約 7 天");
   });
 
-  it("says the quota is spent, not 即將用完, once it is gone", () => {
-    const events = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 0, nextResetAt: at(30) });
-    const warning = events.find((e) => e.eventType === "usage_warning")!;
-    expect(warning.title).toContain("已用完");
-    expect(warning.title).not.toContain("即將");
-    expect(warning.body).toContain("額度已用盡");
-    // A quota with real headroom keeps the forward-looking wording.
-    const low = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 8 });
+  it("announces 已用完 separately from the low-quota warning", () => {
+    const spent = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 0, nextResetAt: at(30) });
+    const exhausted = spent.find((e) => e.eventType === "usage_exhausted")!;
+    expect(exhausted.title).toContain("已用完");
+    expect(exhausted.title).not.toContain("即將");
+    expect(exhausted.body).toContain("額度已用盡");
+    // The forward-looking warning is not repeated at 0% — the two states are mutually exclusive.
+    expect(spent.some((e) => e.eventType === "usage_warning")).toBe(false);
+
+    // A quota with real headroom keeps the forward-looking wording…
+    const low = evaluateNotificationEvents({ ...baseCtx, remainingPercent: 8, nextResetAt: at(30) });
     expect(low.find((e) => e.eventType === "usage_warning")!.title).toContain("即將用完");
+    expect(low.some((e) => e.eventType === "usage_exhausted")).toBe(false);
+
+    // …and its key differs from the exhausted one, so a warning delivered at 8% cannot silence
+    // the 已用完 notice that follows in the same cycle. This is the bug that let a quota fill
+    // up without a word once the 剩餘 warning had already gone out.
+    expect(exhausted.eventKey).not.toBe(low.find((e) => e.eventType === "usage_warning")!.eventKey);
   });
 
   it("collapses a sync failure to one notification per provider per hour", () => {

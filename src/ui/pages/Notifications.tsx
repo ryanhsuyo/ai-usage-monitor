@@ -17,7 +17,7 @@ import { SETTINGS_KEYS, settingBool, settingNum } from "@/services/settingsKeys"
 import {
   isLimitNotificationEventEnabled,
   isChannelNotificationEventEnabled,
-  DEFAULT_CHANNEL_EVENT_PREFERENCES,
+  DEFAULT_EVENT_PREFERENCES,
   parseLimitNotificationPreferences,
   parseLimitUsageWarningThresholds,
   limitUsageWarningThreshold,
@@ -27,15 +27,16 @@ import {
 
 const EVENT_TYPES: NotificationEventType[] = [
   "quota_expiring",
-  "reset_expected",
   "reset_confirmed",
   "usage_warning",
+  "usage_exhausted",
+  "reset_expected",
   "exhaustion_forecast",
   "polling_failed",
   "data_stale",
 ];
 
-const DEFAULT_PREFS = DEFAULT_CHANNEL_EVENT_PREFERENCES;
+const DEFAULT_PREFS = DEFAULT_EVENT_PREFERENCES;
 
 const SECRET_LABELS: Partial<Record<NotificationChannelType, { label: string; placeholder: string }>> = {
   discord: { label: "Discord Webhook URL", placeholder: "https://discord.com/api/webhooks/…" },
@@ -46,10 +47,11 @@ const SECRET_LABELS: Partial<Record<NotificationChannelType, { label: string; pl
 
 const EVENT_DESCRIPTIONS: Record<NotificationEventType, string> = {
   quota_expiring: "仍有可用額度但已接近官方重置時間時提醒，避免未使用額度到期。",
-  reset_expected: "到達官方預定重置時間時提醒你確認額度是否恢復。",
-  reset_confirmed: "偵測到用量下降或重置時間前移，可能是臨時／提前重置。",
-  usage_warning: "剩餘額度低於你設定的門檻時通知。",
-  exhaustion_forecast: "依目前使用速度，可能在下次重置前耗盡時通知。",
+  reset_confirmed: "確認額度已重置時通知一次；若比預定時間早，會標示為臨時／提前重置。",
+  usage_warning: "剩餘額度低於你設定的門檻時通知一次。",
+  usage_exhausted: "額度真的用完時再通知一次，不會被上面的門檻提醒蓋掉。",
+  reset_expected: "到達官方預定重置時間、但還沒讀到新用量時通知；預設關閉。",
+  exhaustion_forecast: "依目前使用速度，可能在下次重置前耗盡時通知；預設關閉。",
   polling_failed: "讀取本機用量發生錯誤時通知；預設關閉以避免干擾。",
   data_stale: "長時間沒有取得新資料時通知；預設關閉。",
 };

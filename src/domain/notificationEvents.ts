@@ -230,8 +230,27 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
     });
   }
 
-  // --- Usage warning (low remaining) ---
-  if (
+  // --- Usage warning (low remaining) / exhausted ---
+  // Two separate events on purpose. Sharing one key meant whichever state was observed first
+  // won the cycle: a warning delivered at 6% remaining silenced the "已用完" notice that should
+  // have followed at 0%, so a quota could fill up in silence.
+  if (exhausted) {
+    out.push({
+      ...base,
+      eventType: "usage_exhausted",
+      eventKey: buildEventKey({
+        providerId: ctx.providerId,
+        limitKey: ctx.limitKey,
+        eventType: "usage_exhausted",
+        anchorIso: cycleAnchor,
+      }),
+      title: `${ctx.providerLabel} ${ctx.limitLabel}已用完`,
+      body:
+        `額度已用盡，需等待重置。` +
+        (ctx.nextResetAt ? `\n預計 ${formatLocal(ctx.nextResetAt)} 重置。` : ""),
+      severity: "warning",
+    });
+  } else if (
     ctx.remainingPercent !== undefined &&
     ctx.remainingPercent <= s.usageWarningRemainingPercent
   ) {
@@ -244,14 +263,8 @@ export function evaluateNotificationEvents(ctx: NotificationContext): CandidateE
         eventType: "usage_warning",
         anchorIso: cycleAnchor,
       }),
-      // At (or below) the exhausted threshold the quota is gone, not "about to" go.
-      title: exhausted
-        ? `${ctx.providerLabel} ${ctx.limitLabel}已用完`
-        : `${ctx.providerLabel} ${ctx.limitLabel}即將用完`,
-      body: exhausted
-        ? `額度已用盡，需等待重置。` +
-          (ctx.nextResetAt ? `\n預計 ${formatLocal(ctx.nextResetAt)} 重置。` : "")
-        : `依目前資料，剩餘額度約 ${Math.round(ctx.remainingPercent)}%。`,
+      title: `${ctx.providerLabel} ${ctx.limitLabel}即將用完`,
+      body: `依目前資料，剩餘額度約 ${Math.round(ctx.remainingPercent)}%。`,
       severity: "warning",
     });
   }

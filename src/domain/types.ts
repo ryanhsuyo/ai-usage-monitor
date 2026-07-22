@@ -46,6 +46,7 @@ export type NotificationEventType =
   | "reset_expected"
   | "reset_confirmed"
   | "usage_warning"
+  | "usage_exhausted"
   | "exhaustion_forecast"
   | "polling_failed"
   | "data_stale";

@@ -22,7 +22,7 @@ function config(partial: Partial<NotificationChannelConfig> = {}): NotificationC
     eventPreferences: {
     quota_expiring: true, reset_expected: true,
       reset_confirmed: true,
-      usage_warning: true,
+      usage_warning: true, usage_exhausted: true,
       exhaustion_forecast: true,
       polling_failed: false,
       data_stale: false,

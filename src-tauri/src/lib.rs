@@ -233,6 +233,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0002_deduplicate_usage_limits.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "prune seeded event preferences",
+            sql: include_str!("../migrations/0003_prune_seeded_event_preferences.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

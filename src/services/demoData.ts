@@ -19,6 +19,7 @@ import type {
   UsageActivityRepository,
   UsageSnapshotRepository,
 } from "@/ports";
+import { DEFAULT_EVENT_PREFERENCES } from "@/domain/limitNotificationPreferences";
 import { SETTINGS_KEYS } from "./settingsKeys";
 
 const DAY = 24 * 3600_000;
@@ -268,14 +269,7 @@ export function createDemoDataService(deps: DemoDeps) {
         type: "discord",
         displayName: "Demo Discord（未啟用示範）",
         enabled: false,
-        eventPreferences: {
-          quota_expiring: true, reset_expected: false,
-          reset_confirmed: true,
-          usage_warning: true,
-          exhaustion_forecast: true,
-          polling_failed: false,
-          data_stale: false,
-        },
+        eventPreferences: { ...DEFAULT_EVENT_PREFERENCES },
         createdAt: nowIso,
         updatedAt: nowIso,
       };

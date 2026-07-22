@@ -215,7 +215,7 @@ describe("Notifications page", () => {
       eventPreferences: {
         quota_expiring: true, reset_expected: true,
         reset_confirmed: true,
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: false,
         data_stale: false,
@@ -228,11 +228,11 @@ describe("Notifications page", () => {
     await user.click(await screen.findByRole("button", { name: "通知設定" }));
 
     // per-event toggle
-    const eventSwitch = await screen.findByRole("switch", { name: "桌面通知 — 臨時／提前重置" });
+    const eventSwitch = await screen.findByRole("switch", { name: "桌面通知 — 額度已重置" });
     expect(eventSwitch).toHaveAttribute("aria-checked", "true");
     await user.click(eventSwitch);
     await waitFor(() =>
-      expect(screen.getByRole("switch", { name: "桌面通知 — 臨時／提前重置" })).toHaveAttribute(
+      expect(screen.getByRole("switch", { name: "桌面通知 — 額度已重置" })).toHaveAttribute(
         "aria-checked",
         "false"
       )
@@ -255,7 +255,7 @@ describe("Notifications page", () => {
       eventPreferences: {
         quota_expiring: true, reset_expected: true,
         reset_confirmed: true,
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: false,
         data_stale: false,
@@ -278,7 +278,7 @@ describe("Notifications page", () => {
       eventPreferences: {
         quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: false,
         data_stale: false,
@@ -388,7 +388,7 @@ describe("Secrets never reach the UI store or DB", () => {
       eventPreferences: {
         quota_expiring: true, reset_expected: false,
         reset_confirmed: true,
-        usage_warning: true,
+        usage_warning: true, usage_exhausted: true,
         exhaustion_forecast: true,
         polling_failed: false,
         data_stale: false,

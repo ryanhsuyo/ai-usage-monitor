@@ -91,8 +91,9 @@ export const SOURCE_LABELS: Record<string, string> = {
 export const EVENT_TYPE_LABELS: Record<string, string> = {
   quota_expiring: "額度即將到期",
   reset_expected: "預計重置",
-  reset_confirmed: "臨時／提前重置",
+  reset_confirmed: "額度已重置",
   usage_warning: "即將用完",
+  usage_exhausted: "已用完",
   exhaustion_forecast: "耗盡預測",
   polling_failed: "同步失敗",
   data_stale: "資料過期",

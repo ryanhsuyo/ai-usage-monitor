@@ -18,6 +18,23 @@ describe("per-limit notification preferences", () => {
     expect(isLimitNotificationEventEnabled(parseLimitNotificationPreferences("not-json"), "a", "usage_warning")).toBe(true);
   });
 
+  it("announces the same events by default whether keyed by channel or by limit", () => {
+    // The default set is the four states worth interrupting for, plus the Codex credit reminder.
+    for (const eventType of ["quota_expiring", "reset_confirmed", "usage_warning", "usage_exhausted"] as const) {
+      expect(isChannelNotificationEventEnabled({}, eventType)).toBe(true);
+      expect(isLimitNotificationEventEnabled({}, "any-limit", eventType)).toBe(true);
+    }
+    // Predictive and diagnostic events stay available but silent until asked for. A limit the
+    // user has never opened must not be louder than a channel with no stored preferences.
+    for (const eventType of ["reset_expected", "exhaustion_forecast", "polling_failed", "data_stale"] as const) {
+      expect(isChannelNotificationEventEnabled({}, eventType)).toBe(false);
+      expect(isLimitNotificationEventEnabled({}, "any-limit", eventType)).toBe(false);
+      expect(isLimitNotificationEventEnabled(
+        setLimitNotificationEvent({}, "any-limit", eventType, true), "any-limit", eventType
+      )).toBe(true);
+    }
+  });
+
   it("updates one event without changing another limit", () => {
     const initial = setLimitNotificationEvent({}, "claude-5h", "usage_warning", false);
     const next = setLimitNotificationEvent(initial, "codex-weekly", "reset_confirmed", false);

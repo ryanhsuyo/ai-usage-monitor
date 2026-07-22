@@ -1,11 +1,21 @@
 import type { NotificationEventType } from "./types";
 
-export const DEFAULT_CHANNEL_EVENT_PREFERENCES: Record<NotificationEventType, boolean> = {
+/**
+ * What is announced out of the box, for both channels and individual limits.
+ *
+ * The default set is deliberately small — one notice per state the user has to act on: the quota
+ * came back, it is nearly gone, it is gone, and a Codex reset credit is worth spending. Predictive
+ * ("可能在重置前用完") and diagnostic ("預計重置時間到了但沒有新資料") events fire on states that
+ * later resolve themselves, so they arrive far more often than they turn out to matter; they stay
+ * available per limit but off unless asked for.
+ */
+export const DEFAULT_EVENT_PREFERENCES: Record<NotificationEventType, boolean> = {
   quota_expiring: true,
-  reset_expected: true,
   reset_confirmed: true,
   usage_warning: true,
-  exhaustion_forecast: true,
+  usage_exhausted: true,
+  reset_expected: false,
+  exhaustion_forecast: false,
   polling_failed: false,
   data_stale: false,
 };
@@ -14,7 +24,7 @@ export function isChannelNotificationEventEnabled(
   preferences: Partial<Record<NotificationEventType, boolean>>,
   eventType: NotificationEventType
 ): boolean {
-  return preferences[eventType] ?? DEFAULT_CHANNEL_EVENT_PREFERENCES[eventType];
+  return preferences[eventType] ?? DEFAULT_EVENT_PREFERENCES[eventType];
 }
 
 export type LimitNotificationPreferences = Record<
@@ -69,7 +79,9 @@ export function isLimitNotificationEventEnabled(
   limitId: string,
   eventType: NotificationEventType
 ): boolean {
-  return preferences[limitId]?.[eventType] !== false;
+  // Unset falls through to the shared defaults rather than "on", so a limit the user has never
+  // opened announces the same events a channel does.
+  return preferences[limitId]?.[eventType] ?? DEFAULT_EVENT_PREFERENCES[eventType];
 }
 
 export function setLimitNotificationEvent(

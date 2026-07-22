@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { CLAUDE_DEFAULT_PLANS } from "@/domain/constants";
+import { DEFAULT_EVENT_PREFERENCES } from "@/domain/limitNotificationPreferences";
 import { validateSnapshot } from "@/domain/snapshotValidation";
 import type { LimitType, ProviderId } from "@/domain/types";
 import { getAppServices } from "../appServices";
@@ -129,14 +130,7 @@ export function OnboardingPage() {
           type: "desktop",
           displayName: "桌面通知",
           enabled: true,
-          eventPreferences: {
-            quota_expiring: true, reset_expected: true,
-            reset_confirmed: true,
-            usage_warning: true,
-            exhaustion_forecast: true,
-            polling_failed: false,
-            data_stale: false,
-          },
+          eventPreferences: { ...DEFAULT_EVENT_PREFERENCES },
           createdAt: now,
           updatedAt: now,
         });
