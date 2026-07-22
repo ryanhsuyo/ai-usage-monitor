@@ -1,5 +1,15 @@
 # Handoff Log
 
+## 2026-07-21 — 登入過期時明確提示重新登入，不再只顯示「等待官方更新」
+
+- 實查使用者「Claude 三條又抓不到」：官方資料停在 8.5 小時前。直接以 `get_usage` 控制協定測試，回應 `subscription_type: null`、`rate_limits_available: false`——Claude Code 的 OAuth token（Keychain 中 `expiresAt: 0`）已失效，CLI 直接短路（505ms 返回、未發網路請求）。
+- 過程更正一則誤判：先以為是我跑在 Claude Code 工作階段內、`ANTHROPIC_BASE_URL` 等環境變數污染子行程；改用 `env -i` 完全乾淨環境重測結果相同，排除此因，確認是憑證本身。
+- 問題：這個訊號原本被 `fetch_claude_usage_via_cli` 的 `?` 默默丟棄，與「暫時抓不到」混為一談，都顯示「等待官方更新」。使用者只能查資料庫才知道要重新登入。
+- 修正（Rust）：`fetch_claude_usage_via_cli` 改回傳 `ClaudeUsageFetch` enum（`Limits`／`NeedsLogin`／`Unavailable`）；`classify_usage_response` 以 `rate_limits_available: false` 判定 `NeedsLogin`（成功回應但無訂閱），與逾時／找不到 binary（`Unavailable`）明確區分。全域狀態記 `needs_login`，成功即清除；reading 新增 `auth_needs_login`。
+- 修正（UI）：`authNeedsLogin` 經 metadata 傳到前端。極簡列顯示「需重新登入 Claude」、小工具徽章顯示「需登入」、tooltip 說明「在終端機執行 claude 後輸入 /login，完成後最多 5 分鐘自動恢復」；資料來源頁 lastError 同步。
+- **Codex 不同機制**：Codex 走 app-server `account/rateLimits/read`，token 由 Codex/ChatGPT app 管理，不受 Claude CLI 憑證影響；其登出表現為 app-server 連線失敗（另一條錯誤路徑），不套用此旗標。
+- 測試：Rust 新增 `classify_usage_response` 三情境（NeedsLogin／Limits／Unavailable），並更新 live 測試改用 enum。9 Rust + 212 TS 全綠。
+
 ## 2026-07-21 — 時長與時刻改用互不相似的格式
 
 - 依使用者指定：時長用 `18h32m`，時刻用 `12:32`。兩者字形完全不同，不需要讀到句尾才能分辨（上一版的「後」字後綴仍要讀完整串）。

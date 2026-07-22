@@ -41,6 +41,9 @@ pub struct LocalUsageReading {
     reset_credits_available: bool,
     quota_stale: bool,
     quota_captured_at: String,
+    /// Claude Code's login has expired; the reading is the last cache and the user must re-run
+    /// `/login`. Distinguishes "can't reach the provider" from "provider says you're signed out".
+    auth_needs_login: bool,
 }
 
 fn codex_binary() -> String {
@@ -101,6 +104,20 @@ fn timestamp_unix(value: &str) -> Option<i64> {
 struct ClaudeUsageFetchState {
     last_attempt: Option<Instant>,
     fresh: Option<(i64, Vec<Value>)>,
+    /// The last live fetch returned a valid response saying no subscription/limits are available
+    /// — Claude Code's OAuth token has expired and needs `/login`. Sticky until a fetch succeeds.
+    needs_login: bool,
+}
+
+/// Outcome of one live `get_usage` call.
+enum ClaudeUsageFetch {
+    /// Official limits were returned.
+    Limits(Vec<Value>),
+    /// The CLI answered but reported no available rate limits — the sign of an expired login,
+    /// distinct from a transient failure because the request itself succeeded.
+    NeedsLogin,
+    /// Binary missing, timed out, or no parseable response. Say nothing about auth.
+    Unavailable,
 }
 
 static CLAUDE_USAGE_FETCH: OnceLock<Mutex<ClaudeUsageFetchState>> = OnceLock::new();
@@ -123,20 +140,26 @@ fn claude_binary(home: &str) -> PathBuf {
 /// Ask Claude Code for live official usage through the stream-json control protocol
 /// (`get_usage`), which calls the provider's usage endpoint directly. This consumes no quota
 /// and needs no terminal emulation; only the returned limits are read, never credentials.
-fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> Option<Vec<Value>> {
+fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> ClaudeUsageFetch {
     let binary = claude_binary(home);
-    let mut child = Command::new(binary)
+    let Ok(mut child) = Command::new(binary)
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
         .current_dir(cwd)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
-        .spawn().ok()?;
-    let mut stdin = child.stdin.take()?;
-    let stdout = child.stdout.take()?;
+        .spawn()
+    else {
+        return ClaudeUsageFetch::Unavailable;
+    };
+    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return ClaudeUsageFetch::Unavailable;
+    };
     let request = r#"{"type":"control_request","request_id":"usage","request":{"subtype":"get_usage"}}"#;
     if writeln!(stdin, "{request}").and_then(|_| stdin.flush()).is_err() {
         let _ = child.kill();
         let _ = child.wait();
-        return None;
+        return ClaudeUsageFetch::Unavailable;
     }
     let (sender, receiver) = std::sync::mpsc::channel::<Value>();
     std::thread::spawn(move || {
@@ -160,10 +183,36 @@ fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> Option<Vec<Value>> {
     drop(stdin);
     let _ = child.kill();
     let _ = child.wait();
-    let response = response?;
-    if response.pointer("/response/subtype").and_then(Value::as_str) != Some("success") { return None; }
-    let limits = response.pointer("/response/response/rate_limits/limits")?.as_array()?.clone();
-    (!limits.is_empty()).then_some(limits)
+    let Some(response) = response else { return ClaudeUsageFetch::Unavailable };
+    if response.pointer("/response/subtype").and_then(Value::as_str) != Some("success") {
+        return ClaudeUsageFetch::Unavailable;
+    }
+    classify_usage_response(&response)
+}
+
+/// Read a successful `control_response` into a fetch outcome. `rate_limits_available: false` is
+/// the CLI's own word for "not signed in / no subscription", which we must surface as a login
+/// prompt rather than another silent "waiting for official update".
+fn classify_usage_response(response: &Value) -> ClaudeUsageFetch {
+    if let Some(limits) = response.pointer("/response/response/rate_limits/limits").and_then(Value::as_array) {
+        if !limits.is_empty() {
+            return ClaudeUsageFetch::Limits(limits.clone());
+        }
+    }
+    match response.pointer("/response/response/rate_limits_available").and_then(Value::as_bool) {
+        Some(false) => ClaudeUsageFetch::NeedsLogin,
+        _ => ClaudeUsageFetch::Unavailable,
+    }
+}
+
+/// Whether the last live fetch reported an expired login. Read after `read_claude_local_usage`
+/// has run its refresh.
+fn claude_needs_login() -> bool {
+    CLAUDE_USAGE_FETCH
+        .get_or_init(|| Mutex::new(ClaudeUsageFetchState::default()))
+        .lock()
+        .map(|state| state.needs_login)
+        .unwrap_or(false)
 }
 
 fn all_full_waiting_for_reset(limits: &[Value], now: i64) -> bool {
@@ -217,10 +266,15 @@ fn refreshed_claude_limits(
             })
         }).unwrap_or_else(|| PathBuf::from(home));
         state.last_attempt = Some(Instant::now());
-        if let Some(fresh_limits) = fetch_claude_usage_via_cli(home, &cwd) {
-            let fresh_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000;
-            state.fresh = Some((fresh_ms, fresh_limits.clone()));
-            return Some((fresh_ms, fresh_limits));
+        match fetch_claude_usage_via_cli(home, &cwd) {
+            ClaudeUsageFetch::Limits(fresh_limits) => {
+                state.needs_login = false;
+                let fresh_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000;
+                state.fresh = Some((fresh_ms, fresh_limits.clone()));
+                return Some((fresh_ms, fresh_limits));
+            }
+            ClaudeUsageFetch::NeedsLogin => state.needs_login = true,
+            ClaudeUsageFetch::Unavailable => {}
         }
     }
     match &state.fresh {
@@ -322,7 +376,7 @@ pub fn read_codex_local_usage() -> Result<Vec<LocalUsageReading>, String> {
             cached_input_tokens: model_usage.iter().map(|u| u.cached_input_tokens).sum(),
             output_tokens: model_usage.iter().map(|u| u.output_tokens).sum(), model_usage,
             reset_available_count, reset_credits: reset_credits.clone(), reset_credits_available,
-            quota_stale: false, quota_captured_at: captured.clone(),
+            quota_stale: false, quota_captured_at: captured.clone(), auth_needs_login: false,
         })
     }).collect()
 }
@@ -501,6 +555,7 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
     let input_tokens = model_usage.iter().map(|usage| usage.input_tokens).sum();
     let cached_input_tokens = model_usage.iter().map(|usage| usage.cache_read_tokens).sum();
     let output_tokens = model_usage.iter().map(|usage| usage.output_tokens).sum();
+    let auth_needs_login = claude_needs_login();
 
     let mut readings = Vec::new();
     for limit in limits {
@@ -513,7 +568,7 @@ pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
             reset_at_unix: reset, captured_at: captured_at.clone(), session_count,
             model_usage: model_usage.clone(), input_tokens, cached_input_tokens, output_tokens,
             reset_available_count: 0, reset_credits: Vec::new(), reset_credits_available: false,
-            quota_stale, quota_captured_at: captured_at.clone(),
+            quota_stale, quota_captured_at: captured_at.clone(), auth_needs_login,
         });
     }
     if readings.is_empty() { return Err("Claude Code /usage 快取沒有可用額度".into()); }
@@ -528,6 +583,23 @@ mod tests {
     // One transcript line in Claude Code's real shape.
     fn line(id: &str, model: &str, ts: &str, usage: Value) -> String {
         json!({ "timestamp": ts, "message": { "id": id, "model": model, "usage": usage } }).to_string()
+    }
+
+    #[test]
+    fn usage_response_signals_login_when_no_limits_are_available() {
+        // The real payload from an expired login: success envelope, rate_limits_available false.
+        let expired = json!({ "response": { "response": {
+            "subscription_type": null, "rate_limits_available": false, "rate_limits": null } } });
+        assert!(matches!(classify_usage_response(&expired), ClaudeUsageFetch::NeedsLogin));
+
+        let ok = json!({ "response": { "response": { "rate_limits_available": true, "rate_limits": {
+            "limits": [{ "kind": "session", "percent": 20.0, "resets_at": "2026-07-25T12:00:00Z" }] } } } });
+        assert!(matches!(classify_usage_response(&ok), ClaudeUsageFetch::Limits(l) if l.len() == 1));
+
+        // Empty limits but no explicit "unavailable" — a shape we don't understand, not a claim
+        // that the user is signed out. Must not nag them to log in.
+        let empty = json!({ "response": { "response": { "rate_limits": { "limits": [] } } } });
+        assert!(matches!(classify_usage_response(&empty), ClaudeUsageFetch::Unavailable));
     }
 
     #[test]
@@ -662,7 +734,9 @@ mod tests {
     #[ignore = "live check: needs a logged-in local Claude Code install and network access"]
     fn fetch_claude_usage_live() {
         let home = std::env::var("HOME").expect("HOME");
-        let limits = fetch_claude_usage_via_cli(&home, Path::new(&home)).expect("live usage fetch");
+        let ClaudeUsageFetch::Limits(limits) = fetch_claude_usage_via_cli(&home, Path::new(&home)) else {
+            panic!("expected live usage limits — is Claude Code logged in?");
+        };
         assert!(limits.iter().any(|limit| {
             limit.get("kind").and_then(Value::as_str).is_some()
                 && limit.get("percent").and_then(Value::as_f64).is_some()

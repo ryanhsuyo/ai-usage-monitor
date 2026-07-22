@@ -35,7 +35,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 type CodexMeta = { sessionCount?: number; inputTokens: number; cachedInputTokens: number; outputTokens: number; models?: CodexModelUsage[]; apiEquivalentUsd?: number; unpricedModels?: string[]; pricingBasis?: string; resetAvailableCount?: number; resetCredits?: ResetCreditExpiry[]; resetCreditsAvailable?: boolean };
-type ClaudeMeta = { kind: "claude-local-24h"; inputTokens: number; cachedInputTokens: number; outputTokens: number; models: ClaudeModelUsage[]; quotaStale?: boolean; quotaCapturedAt?: string };
+type ClaudeMeta = { kind: "claude-local-24h"; inputTokens: number; cachedInputTokens: number; outputTokens: number; models: ClaudeModelUsage[]; quotaStale?: boolean; quotaCapturedAt?: string; authNeedsLogin?: boolean };
 function codexMeta(note?: string): CodexMeta | undefined {
   if (!note?.startsWith("AUTO:")) return undefined;
   try {
@@ -126,13 +126,14 @@ function StripProviderRow({
     : label;
   const claude = provider === "claude" ? claudeMeta(latest?.note) : undefined;
   const quotaStale = claude?.quotaStale === true;
+  const authNeedsLogin = claude?.authNeedsLogin === true;
   const claudeBreakdown = claude ? estimateClaudeApiEquivalent(claude.models) : [];
   const claudeCost = claudeBreakdown.reduce((sum, model) => sum + (model.cost ?? 0), 0);
   const hasPricedClaudeModel = claudeBreakdown.some((model) => model.cost !== undefined);
   const inlineCost = meta?.apiEquivalentUsd !== undefined
     ? `${meta.unpricedModels?.length ? "≥ " : ""}US$${meta.apiEquivalentUsd.toFixed(2)}`
     : claude && hasPricedClaudeModel ? `US$${claudeCost.toFixed(2)}` : undefined;
-  const visibleTiming = quotaStale ? "等待官方更新" : awaitingRefresh ? "等待新週期資料" : stripRightInfo === "reset"
+  const visibleTiming = authNeedsLogin ? "需重新登入 Claude" : quotaStale ? "等待官方更新" : awaitingRefresh ? "等待新週期資料" : stripRightInfo === "reset"
     ? `重置 ${reset ?? "--"}`
     : stripRightInfo === "exhaustion"
       ? `用完 ${exhaustion ?? "--"}`
@@ -143,7 +144,9 @@ function StripProviderRow({
   const resetCreditTooltip = resetCredits.availableCount > 0
     ? `\n可用 Full reset：${resetCredits.availableCount} 張${resetCredits.plan ? `\n${resetCredits.plan.message}` : ""}${resetCredits.recommendations.length ? `\n${resetCredits.recommendations.map((item, index) => `第 ${index + 1} 張 ${fullDate(item.expiresAt)} 到期：${item.message}；最晚 ${fullDate(item.latestUseAt)}`).join("\n")}` : "（未提供到期明細）"}`
     : "";
-  const tooltip = quotaStale
+  const tooltip = authNeedsLogin
+    ? `${label}：Claude Code 登入已過期，無法取得官方額度。\n請在終端機執行 claude 後輸入 /login 重新登入；完成後最多 5 分鐘會自動恢復。\n（顯示的是最後一次成功的快取值）`
+    : quotaStale
     ? `${label}：偵測到較新的 Claude 活動，但官方額度快取仍停在 ${claude?.quotaCapturedAt ? fullDate(claude.quotaCapturedAt) : "較早時間"}\n舊的 ${Math.round(used)}% 暫不顯示；Token／API 等值仍由本機活動計算`
     : awaitingRefresh
     ? `${label}：官方重置時間已到，舊週期用量已停止顯示\n正在等待供應商回傳新週期資料，不會把未確認資料假設為 0%${resetCreditTooltip}`
@@ -550,6 +553,7 @@ export function App() {
             const meta = provider === "codex" ? codexMeta(latest?.note) : undefined;
             const claude = provider === "claude" ? claudeMeta(latest?.note) : undefined;
             const quotaStale = claude?.quotaStale === true;
+            const authNeedsLogin = claude?.authNeedsLogin === true;
             const tokenTotal = meta ? meta.inputTokens + meta.outputTokens : undefined;
             const awaitingRefresh = snapshotCycleState(latest, new Date().toISOString()) === "awaiting_provider_refresh";
             const resetCredits = summarizeResetCredits(meta?.resetAvailableCount ?? 0, meta?.resetCredits ?? [], new Date().toISOString(), 72, awaitingRefresh ? 0 : used, latest?.resetAt);
@@ -563,8 +567,8 @@ export function App() {
               <small>{limit.name}</small>
               <div className="widget-source-status">尚未取得 Claude 官方 Current 5h／Weekly 額度</div>
             </article>;
-            return <article className={`widget-provider ${awaitingRefresh || quotaStale ? "awaiting-refresh" : ""}`} key={limit.id} title={quotaStale ? `${label}：有新活動，但 Claude 官方額度快取未更新` : awaitingRefresh ? `${label}：官方重置時間已到，等待新週期資料${resetCreditDetails.length ? `\n${resetCreditDetails.join("\n")}` : ""}` : `${label}：已使用 ${Math.round(used)}%${resetCreditDetails.length ? `\n${resetCreditDetails.join("\n")}` : ""}${codexCostTooltip(meta) || "\nToken／成本資料不足"}`}>
-              <div className="widget-provider-head"><strong>{label}{provider === "codex" && meta?.resetCreditsAvailable ? ` · Reset ${resetCredits.availableCount} 張` : ""}</strong>{quotaStale ? <span className="waiting">待官方更新</span> : awaitingRefresh ? <span className="waiting">待更新</span> : <span>{Math.round(used)}</span>}</div>
+            return <article className={`widget-provider ${awaitingRefresh || quotaStale ? "awaiting-refresh" : ""}`} key={limit.id} title={authNeedsLogin ? `${label}：Claude Code 登入已過期，請在終端機執行 claude 後輸入 /login 重新登入` : quotaStale ? `${label}：有新活動，但 Claude 官方額度快取未更新` : awaitingRefresh ? `${label}：官方重置時間已到，等待新週期資料${resetCreditDetails.length ? `\n${resetCreditDetails.join("\n")}` : ""}` : `${label}：已使用 ${Math.round(used)}%${resetCreditDetails.length ? `\n${resetCreditDetails.join("\n")}` : ""}${codexCostTooltip(meta) || "\nToken／成本資料不足"}`}>
+              <div className="widget-provider-head"><strong>{label}{provider === "codex" && meta?.resetCreditsAvailable ? ` · Reset ${resetCredits.availableCount} 張` : ""}</strong>{authNeedsLogin ? <span className="waiting">需登入</span> : quotaStale ? <span className="waiting">待官方更新</span> : awaitingRefresh ? <span className="waiting">待更新</span> : <span>{Math.round(used)}</span>}</div>
               <small>{limit.name}</small>
               <div className={`widget-meter ${awaitingRefresh || quotaStale ? "waiting" : ""}`}><i style={{ width: `${awaitingRefresh || quotaStale ? 35 : Math.min(100, Math.max(0, used))}%` }} /></div>
               {quotaStale ? <div className="widget-cycle-refresh">偵測到使用活動，等待 Claude 官方額度更新</div> : awaitingRefresh ? <div className="widget-cycle-refresh">已到官方重置時間，等待新週期資料</div> : <div className="widget-meta"><span>剩餘 {Math.round(100 - used)}%</span><span>{latest?.resetAt ? `重置 ${formatLocalDateTimeShort(latest.resetAt)}` : "未提供重置時間"}</span></div>}

@@ -20,6 +20,7 @@ export type LocalUsageReading = {
   resetCreditsAvailable?: boolean;
   quotaStale?: boolean;
   quotaCapturedAt?: string;
+  authNeedsLogin?: boolean;
 };
 
 export function buildCodexMetadata(reading: LocalUsageReading) {
@@ -28,7 +29,7 @@ export function buildCodexMetadata(reading: LocalUsageReading) {
 }
 
 export function buildClaudeMetadata(reading: LocalUsageReading) {
-  return { kind: "claude-local-24h", period: "rolling-24-hours", sessionCount: reading.sessionCount, models: reading.modelUsage, inputTokens: reading.inputTokens, cachedInputTokens: reading.cachedInputTokens, outputTokens: reading.outputTokens, quotaStale: reading.quotaStale ?? false, quotaCapturedAt: reading.quotaCapturedAt ?? reading.capturedAt };
+  return { kind: "claude-local-24h", period: "rolling-24-hours", sessionCount: reading.sessionCount, models: reading.modelUsage, inputTokens: reading.inputTokens, cachedInputTokens: reading.cachedInputTokens, outputTokens: reading.outputTokens, quotaStale: reading.quotaStale ?? false, quotaCapturedAt: reading.quotaCapturedAt ?? reading.capturedAt, authNeedsLogin: reading.authNeedsLogin ?? false };
 }
 
 // Rolling token metadata (24h window) drifts on every collection, so a "changed note" alone must
@@ -89,7 +90,9 @@ export function createLocalUsageCollector(
         // lib, and a fresh clone fails `pnpm typecheck` on it.
         const capturedTimes = result.map((reading) => reading.capturedAt).filter(Boolean).sort();
         const sourceCapturedAt = capturedTimes[capturedTimes.length - 1] ?? ranAt;
-        const staleError = providerId === "claude" && result.some((reading) => reading.quotaStale)
+        const staleError = providerId === "claude" && result.some((reading) => reading.authNeedsLogin)
+          ? "Claude Code 登入已過期，請在終端機執行 claude 後輸入 /login 重新登入"
+          : providerId === "claude" && result.some((reading) => reading.quotaStale)
           ? "Claude 有新活動，但官方 /usage 快取尚未更新；目前不顯示舊額度百分比"
           : undefined;
         if (!previous || previous.lastSuccessAt !== sourceCapturedAt || previous.lastError !== staleError) {
