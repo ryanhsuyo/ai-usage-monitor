@@ -89,11 +89,13 @@ export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: Perio
     const modelRows = [...models.values()].map((entry) => {
       const price = claudePrice(entry.model, nowIso);
       // Cache writes without a TTL breakdown are billed as 1-hour writes (Claude Code default).
-      const untaggedWrites = Math.max(0, entry.cacheCreationTokens - entry.cacheCreation5mTokens - entry.cacheCreation1hTokens);
+      const cacheWrite5m = Math.min(entry.cacheCreationTokens, entry.cacheCreation5mTokens);
+      const cacheWrite1h = Math.min(entry.cacheCreationTokens - cacheWrite5m, entry.cacheCreation1hTokens);
+      const untaggedWrites = entry.cacheCreationTokens - cacheWrite5m - cacheWrite1h;
       const cost = price ? (
         entry.inputTokens * price.input +
-        entry.cacheCreation5mTokens * price.cacheWrite5m +
-        (entry.cacheCreation1hTokens + untaggedWrites) * price.cacheWrite1h +
+        cacheWrite5m * price.cacheWrite5m +
+        (cacheWrite1h + untaggedWrites) * price.cacheWrite1h +
         entry.cacheReadTokens * price.cacheRead +
         entry.outputTokens * price.output
       ) / 1_000_000 : undefined;

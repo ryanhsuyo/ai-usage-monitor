@@ -459,35 +459,60 @@ fn aggregate_daily_usage<'a>(
 ) -> Result<Vec<DailyModelUsage>, String> {
     let date_format = time::format_description::parse_borrowed::<2>("[year]-[month]-[day]")
         .map_err(|error| error.to_string())?;
-    let mut seen_messages = HashSet::new();
+    // Claude can copy the same message into resumed/parent/sidechain transcripts. Some copies
+    // are zeroed or contain an earlier partial output. Keep one logical message and merge each
+    // counter by maximum instead of letting filesystem traversal order decide which copy wins.
+    let mut messages: HashMap<String, DailyModelUsage> = HashMap::new();
     let mut by_day_model: HashMap<(String, String), DailyModelUsage> = HashMap::new();
-    {
-        for line in lines {
-            let Ok(root) = serde_json::from_str::<Value>(line) else { continue };
-            let Some(usage) = root.pointer("/message/usage") else { continue };
-            let message_id = root.pointer("/message/id").and_then(Value::as_str)
-                .or_else(|| root.get("requestId").and_then(Value::as_str))
-                .unwrap_or("");
-            if message_id.is_empty() || !seen_messages.insert(message_id.to_string()) { continue; }
-            let model = root.pointer("/message/model").and_then(Value::as_str).unwrap_or("unknown");
-            if model == "<synthetic>" { continue; }
-            let Some(unix) = root.get("timestamp").and_then(Value::as_str).and_then(timestamp_unix) else { continue };
-            let Ok(local) = OffsetDateTime::from_unix_timestamp(unix + i64::from(utc_offset_minutes) * 60) else { continue };
-            let Ok(date) = local.date().format(&date_format) else { continue };
-            let entry = by_day_model.entry((date.clone(), model.to_string())).or_insert_with(|| DailyModelUsage {
-                date, model: model.to_string(),
-                input_tokens: 0, cache_creation_tokens: 0, cache_creation_5m_tokens: 0, cache_creation_1h_tokens: 0,
-                cache_read_tokens: 0, output_tokens: 0, message_count: 0,
-            });
-            entry.input_tokens += usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-            entry.cache_creation_tokens += usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-            // TTL breakdown decides cache-write pricing (5m = 1.25x input, 1h = 2x input).
-            entry.cache_creation_5m_tokens += usage.pointer("/cache_creation/ephemeral_5m_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-            entry.cache_creation_1h_tokens += usage.pointer("/cache_creation/ephemeral_1h_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-            entry.cache_read_tokens += usage.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-            entry.output_tokens += usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-            entry.message_count += 1;
-        }
+    for line in lines {
+        let Ok(root) = serde_json::from_str::<Value>(line) else { continue };
+        let Some(usage) = root.pointer("/message/usage") else { continue };
+        let message_id = root.pointer("/message/id").and_then(Value::as_str)
+            .or_else(|| root.get("requestId").and_then(Value::as_str))
+            .unwrap_or("");
+        if message_id.is_empty() { continue; }
+        let model = root.pointer("/message/model").and_then(Value::as_str).unwrap_or("unknown");
+        if model == "<synthetic>" { continue; }
+        let Some(unix) = root.get("timestamp").and_then(Value::as_str).and_then(timestamp_unix) else { continue };
+        let Ok(local) = OffsetDateTime::from_unix_timestamp(unix + i64::from(utc_offset_minutes) * 60) else { continue };
+        let Ok(date) = local.date().format(&date_format) else { continue };
+        let candidate = DailyModelUsage {
+            date, model: model.to_string(),
+            input_tokens: usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0),
+            cache_creation_tokens: usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0),
+            cache_creation_5m_tokens: usage.pointer("/cache_creation/ephemeral_5m_input_tokens").and_then(Value::as_u64).unwrap_or(0),
+            cache_creation_1h_tokens: usage.pointer("/cache_creation/ephemeral_1h_input_tokens").and_then(Value::as_u64).unwrap_or(0),
+            cache_read_tokens: usage.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0),
+            output_tokens: usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0),
+            message_count: 1,
+        };
+        messages.entry(message_id.to_string()).and_modify(|existing| {
+            existing.input_tokens = existing.input_tokens.max(candidate.input_tokens);
+            existing.cache_creation_tokens = existing.cache_creation_tokens.max(candidate.cache_creation_tokens);
+            existing.cache_creation_5m_tokens = existing.cache_creation_5m_tokens.max(candidate.cache_creation_5m_tokens);
+            existing.cache_creation_1h_tokens = existing.cache_creation_1h_tokens.max(candidate.cache_creation_1h_tokens);
+            existing.cache_read_tokens = existing.cache_read_tokens.max(candidate.cache_read_tokens);
+            existing.output_tokens = existing.output_tokens.max(candidate.output_tokens);
+        }).or_insert(candidate);
+    }
+    for mut message in messages.into_values() {
+        // Malformed/partial duplicate copies sometimes retain a TTL detail while their total is
+        // zero. A pricing split may never exceed the provider's cache-creation total.
+        message.cache_creation_5m_tokens = message.cache_creation_5m_tokens.min(message.cache_creation_tokens);
+        message.cache_creation_1h_tokens = message.cache_creation_1h_tokens
+            .min(message.cache_creation_tokens - message.cache_creation_5m_tokens);
+        let entry = by_day_model.entry((message.date.clone(), message.model.clone())).or_insert_with(|| DailyModelUsage {
+            date: message.date.clone(), model: message.model.clone(),
+            input_tokens: 0, cache_creation_tokens: 0, cache_creation_5m_tokens: 0, cache_creation_1h_tokens: 0,
+            cache_read_tokens: 0, output_tokens: 0, message_count: 0,
+        });
+        entry.input_tokens += message.input_tokens;
+        entry.cache_creation_tokens += message.cache_creation_tokens;
+        entry.cache_creation_5m_tokens += message.cache_creation_5m_tokens;
+        entry.cache_creation_1h_tokens += message.cache_creation_1h_tokens;
+        entry.cache_read_tokens += message.cache_read_tokens;
+        entry.output_tokens += message.output_tokens;
+        entry.message_count += 1;
     }
     let mut rows: Vec<DailyModelUsage> = by_day_model.into_values().collect();
     rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.model.cmp(&b.model)));
@@ -637,6 +662,22 @@ mod tests {
         let rows = aggregate_daily_usage(lines.iter().map(String::as_str), 0).expect("aggregate");
         assert_eq!(rows[0].message_count, 1);
         assert_eq!(rows[0].output_tokens, 10);
+    }
+
+    #[test]
+    fn daily_usage_keeps_the_most_complete_duplicate_copy() {
+        let lines = [
+            line("dup", "claude-opus-4-8", "2026-07-19T01:00:00.000Z",
+                 json!({ "input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0,
+                         "cache_creation": { "ephemeral_1h_input_tokens": 500 } })),
+            line("dup", "claude-opus-4-8", "2026-07-19T01:00:00.000Z",
+                 json!({ "input_tokens": 2, "output_tokens": 100, "cache_creation_input_tokens": 400,
+                         "cache_creation": { "ephemeral_1h_input_tokens": 500 } })),
+        ];
+        let rows = aggregate_daily_usage(lines.iter().map(String::as_str), 0).expect("aggregate");
+        assert_eq!(rows[0].message_count, 1);
+        assert_eq!((rows[0].input_tokens, rows[0].output_tokens), (2, 100));
+        assert_eq!((rows[0].cache_creation_tokens, rows[0].cache_creation_1h_tokens), (400, 400));
     }
 
     #[test]

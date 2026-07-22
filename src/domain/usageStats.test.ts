@@ -78,6 +78,12 @@ describe("aggregateClaudeUsage", () => {
 
     const untagged = aggregateClaudeUsage([row({ cacheCreationTokens: 1_000_000 })], "daily");
     expect(untagged[0]!.cost).toBeCloseTo(10, 5); // falls back to the 1h (2x) rate
+
+    const malformed = aggregateClaudeUsage([
+      row({ cacheCreationTokens: 1_000_000, cacheCreation5mTokens: 400_000, cacheCreation1hTokens: 900_000 }),
+    ], "daily");
+    // TTL details are capped to the provider total: 400K at 5m + 600K at 1h.
+    expect(malformed[0]!.cost).toBeCloseTo(8.5, 5);
   });
 
   it("applies Sonnet 5 introductory pricing based on the supplied clock", () => {

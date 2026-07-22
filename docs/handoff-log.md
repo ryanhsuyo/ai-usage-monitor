@@ -1,5 +1,12 @@
 # Handoff Log
 
+## 2026-07-22 — 修正成本統計與 ccusage 的落差
+
+- 實機發現 7 月有 81 組同 message.id、usage 內容不同的副本；舊邏輯 first-seen wins 會依 filesystem 順序選到 0／partial 副本，至少少算 13,343 output tokens。
+- Rust 全歷史聚合改為同一 message.id 各 token 欄取最大完整值，再只計一則訊息；新增 partial→complete／TTL 異常測試。實機重算 7 月 output 由 11,314,208 修正為 11,347,854。
+- TTL 分項 5m／1h 防禦性限制在 cache-creation 總數內，避免異常副本造成顯示 token 與計價 token 不一致；Domain 補測試。
+- 成本統計頁不再只在 mount 時讀一次：Claude transcript 事件會觸發重掃，並新增擷取時間與重新整理按鈕；掃描 single-flight，避免大型歷史重疊執行。
+
 ## 2026-07-22 — 極簡列標籤縮短、票券區拆行，橫條高度改為依列數計算
 
 - 使用者要求：額度重置時刻與 reset 票券到期日不要擠在同一行（是兩個無關的時間點，並排會讀成一段區間），標籤縮短為 `Claude 5HR sub`／`Claude weekly`／`Fable weekly`。

@@ -486,6 +486,7 @@ function useBootstrap() {
         // Refresh only that provider after the platform adapter has debounced the write burst.
         unwatchLocalUsageActivity = await services.usageCacheWatcher.watchLocalUsageActivity((providerId) => void (async () => {
           const inserted = (await services.collectLocalUsage([providerId]).catch(() => undefined))?.inserted ?? 0;
+          if (!disposed) window.dispatchEvent(new CustomEvent("local-usage-updated", { detail: { providerId } }));
           if (inserted > 0 && !disposed) {
             await refresh();
             await updateTray();

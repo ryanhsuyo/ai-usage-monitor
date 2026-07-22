@@ -1,7 +1,7 @@
 // ccusage-style cost statistics: full local Claude Code transcript history aggregated into
 // daily / weekly / monthly periods with per-model token counts and API-equivalent USD.
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { aggregateClaudeUsage, summarizeUsagePeriods, type DailyModelUsage, type PeriodGranularity } from "@/domain/usageStats";
 import { EmptyState } from "../components/atoms";
 
@@ -36,22 +36,39 @@ export function UsageStatsPage() {
   const [rows, setRows] = useState<DailyModelUsage[] | null>(null);
   const [error, setError] = useState<string>();
   const [granularity, setGranularity] = useState<PeriodGranularity>("daily");
+  const [loadedAt, setLoadedAt] = useState<Date>();
+  const [loading, setLoading] = useState(false);
+  const loadingRef = useRef(false);
+
+  const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    setLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke<DailyModelUsage[]>("read_claude_usage_daily", {
+        utcOffsetMinutes: -new Date().getTimezoneOffset(),
+      });
+      setRows(result);
+      setLoadedAt(new Date());
+      setError(undefined);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const result = await invoke<DailyModelUsage[]>("read_claude_usage_daily", {
-          utcOffsetMinutes: -new Date().getTimezoneOffset(),
-        });
-        if (!cancelled) setRows(result);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    void load();
+    const onUsageUpdated = (event: Event) => {
+      const providerId = (event as CustomEvent<{ providerId?: string }>).detail?.providerId;
+      if (providerId === "claude") void load();
+    };
+    window.addEventListener("local-usage-updated", onUsageUpdated);
+    return () => window.removeEventListener("local-usage-updated", onUsageUpdated);
+  }, [load]);
 
   const periods = useMemo(() => (rows ? aggregateClaudeUsage(rows, granularity) : []), [rows, granularity]);
   const summary = useMemo(() => summarizeUsagePeriods(periods), [periods]);
@@ -74,6 +91,10 @@ export function UsageStatsPage() {
           <p>本機 Claude Code 全部歷史的 API 等值成本（非訂閱實際扣款）</p>
         </div>
         <div className="row" role="tablist" aria-label="統計區間">
+          {loadedAt && <span className="hint">擷取 {loadedAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
+          <button type="button" className="btn" onClick={() => void load()} disabled={loading}>
+            {loading ? "更新中…" : "重新整理"}
+          </button>
           {GRANULARITY_OPTIONS.map((option) => (
             <button
               key={option.id}
