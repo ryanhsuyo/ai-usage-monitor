@@ -423,6 +423,7 @@ fn claude_recent_usage(home: &str, since_unix: i64) -> (Vec<ModelUsage>, usize, 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyModelUsage {
+    provider_id: String,
     date: String,
     model: String,
     input_tokens: u64,
@@ -448,6 +449,63 @@ pub fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModel
     }
     let bodies: Vec<String> = files.iter().filter_map(|(_, path)| fs::read_to_string(path).ok()).collect();
     aggregate_daily_usage(bodies.iter().flat_map(|body| body.lines()), utc_offset_minutes)
+}
+
+/// Aggregate Codex desktop/CLI session history, including archived sessions. Each token-count
+/// event contains a delta in `last_token_usage`; using that delta avoids assigning a session's
+/// cumulative total to the final model when the user switches models mid-session.
+#[tauri::command]
+pub fn read_codex_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
+    let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
+    let mut files = Vec::new();
+    jsonl_files(&Path::new(&home).join(".codex/sessions"), &mut files);
+    jsonl_files(&Path::new(&home).join(".codex/archived_sessions"), &mut files);
+    if files.is_empty() {
+        return Err("找不到 Codex 本機對話紀錄（~/.codex/sessions）".into());
+    }
+    let bodies: Vec<String> = files.iter().filter_map(|(_, path)| fs::read_to_string(path).ok()).collect();
+    aggregate_codex_daily_usage(bodies.iter().flat_map(|body| body.lines()), utc_offset_minutes)
+}
+
+fn aggregate_codex_daily_usage<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    utc_offset_minutes: i32,
+) -> Result<Vec<DailyModelUsage>, String> {
+    let date_format = time::format_description::parse_borrowed::<2>("[year]-[month]-[day]")
+        .map_err(|error| error.to_string())?;
+    let mut current_model: Option<String> = None;
+    let mut by_day_model: HashMap<(String, String), DailyModelUsage> = HashMap::new();
+    for line in lines {
+        let Ok(root) = serde_json::from_str::<Value>(line) else { continue };
+        if root.get("type").and_then(Value::as_str) == Some("turn_context") {
+            if let Some(model) = root.pointer("/payload/model").and_then(Value::as_str) {
+                current_model = Some(model.to_string());
+            }
+            continue;
+        }
+        if root.pointer("/payload/type").and_then(Value::as_str) != Some("token_count") { continue; }
+        let Some(usage) = root.pointer("/payload/info/last_token_usage") else { continue };
+        let Some(model) = current_model.as_deref() else { continue };
+        let Some(unix) = root.get("timestamp").and_then(Value::as_str).and_then(timestamp_unix) else { continue };
+        let Ok(local) = OffsetDateTime::from_unix_timestamp(unix + i64::from(utc_offset_minutes) * 60) else { continue };
+        let Ok(date) = local.date().format(&date_format) else { continue };
+        let entry = by_day_model.entry((date.clone(), model.to_string())).or_insert_with(|| DailyModelUsage {
+            provider_id: "codex".to_string(), date, model: model.to_string(),
+            input_tokens: 0, cache_creation_tokens: 0, cache_creation_5m_tokens: 0, cache_creation_1h_tokens: 0,
+            cache_read_tokens: 0, output_tokens: 0, message_count: 0,
+        });
+        let total_input = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+        let cached_input = usage.get("cached_input_tokens").and_then(Value::as_u64).unwrap_or(0);
+        // Codex includes cached input in input_tokens. Keep uncached Input and Cache Read in
+        // separate columns, matching Claude transcripts and ccusage.
+        entry.input_tokens += total_input.saturating_sub(cached_input);
+        entry.cache_read_tokens += cached_input;
+        entry.output_tokens += usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+        entry.message_count += 1;
+    }
+    let mut rows: Vec<DailyModelUsage> = by_day_model.into_values().collect();
+    rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.model.cmp(&b.model)));
+    Ok(rows)
 }
 
 /// Fold transcript lines into per-day, per-model totals. Kept free of the filesystem so the
@@ -477,7 +535,7 @@ fn aggregate_daily_usage<'a>(
         let Ok(local) = OffsetDateTime::from_unix_timestamp(unix + i64::from(utc_offset_minutes) * 60) else { continue };
         let Ok(date) = local.date().format(&date_format) else { continue };
         let candidate = DailyModelUsage {
-            date, model: model.to_string(),
+            provider_id: "claude".to_string(), date, model: model.to_string(),
             input_tokens: usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0),
             cache_creation_tokens: usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0),
             cache_creation_5m_tokens: usage.pointer("/cache_creation/ephemeral_5m_input_tokens").and_then(Value::as_u64).unwrap_or(0),
@@ -502,7 +560,7 @@ fn aggregate_daily_usage<'a>(
         message.cache_creation_1h_tokens = message.cache_creation_1h_tokens
             .min(message.cache_creation_tokens - message.cache_creation_5m_tokens);
         let entry = by_day_model.entry((message.date.clone(), message.model.clone())).or_insert_with(|| DailyModelUsage {
-            date: message.date.clone(), model: message.model.clone(),
+            provider_id: "claude".to_string(), date: message.date.clone(), model: message.model.clone(),
             input_tokens: 0, cache_creation_tokens: 0, cache_creation_5m_tokens: 0, cache_creation_1h_tokens: 0,
             cache_read_tokens: 0, output_tokens: 0, message_count: 0,
         });
@@ -608,6 +666,47 @@ mod tests {
     // One transcript line in Claude Code's real shape.
     fn line(id: &str, model: &str, ts: &str, usage: Value) -> String {
         json!({ "timestamp": ts, "message": { "id": id, "model": model, "usage": usage } }).to_string()
+    }
+
+    fn codex_context(model: &str, ts: &str) -> String {
+        json!({ "timestamp": ts, "type": "turn_context", "payload": { "model": model } }).to_string()
+    }
+
+    fn codex_tokens(ts: &str, input: u64, cached: u64, output: u64) -> String {
+        json!({ "timestamp": ts, "type": "event_msg", "payload": { "type": "token_count", "info": {
+            "last_token_usage": { "input_tokens": input, "cached_input_tokens": cached, "output_tokens": output }
+        } } }).to_string()
+    }
+
+    #[test]
+    fn codex_daily_usage_attributes_deltas_to_the_active_model() {
+        let lines = [
+            codex_context("gpt-5.5", "2026-07-19T01:00:00Z"),
+            codex_tokens("2026-07-19T01:01:00Z", 100, 80, 10),
+            codex_context("gpt-5.6-sol", "2026-07-19T02:00:00Z"),
+            codex_tokens("2026-07-19T02:01:00Z", 200, 150, 20),
+        ];
+        let rows = aggregate_codex_daily_usage(lines.iter().map(String::as_str), 0).expect("aggregate");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].provider_id, "codex");
+        assert_eq!((rows[0].model.as_str(), rows[0].input_tokens, rows[0].cache_read_tokens), ("gpt-5.5", 20, 80));
+        assert_eq!((rows[1].model.as_str(), rows[1].output_tokens), ("gpt-5.6-sol", 20));
+    }
+
+    #[test]
+    fn codex_daily_usage_uses_the_callers_timezone_and_skips_cumulative_totals() {
+        let lines = [
+            codex_context("gpt-5.6-terra", "2026-07-19T23:00:00Z"),
+            json!({ "timestamp": "2026-07-19T23:30:00Z", "type": "event_msg", "payload": {
+                "type": "token_count", "info": {
+                    "total_token_usage": { "input_tokens": 999_999 },
+                    "last_token_usage": { "input_tokens": 7, "cached_input_tokens": 3, "output_tokens": 2 }
+                }
+            } }).to_string(),
+        ];
+        let rows = aggregate_codex_daily_usage(lines.iter().map(String::as_str), 8 * 60).expect("aggregate");
+        assert_eq!(rows[0].date, "2026-07-20");
+        assert_eq!(rows[0].input_tokens, 4);
     }
 
     #[test]
@@ -767,6 +866,17 @@ mod tests {
         let rows = read_claude_usage_daily(8 * 60).expect("daily usage");
         assert!(!rows.is_empty());
         // Full JSON dump on stdout so the result can be cross-checked against ccusage.
+        println!("{}", serde_json::to_string(&rows).expect("serialize"));
+        eprintln!("rows={} elapsed={:?}", rows.len(), started.elapsed());
+    }
+
+    #[test]
+    #[ignore = "live check: reads the real ~/.codex session history"]
+    fn read_codex_usage_daily_live() {
+        let started = Instant::now();
+        let rows = read_codex_usage_daily(8 * 60).expect("daily usage");
+        assert!(!rows.is_empty());
+        assert!(rows.iter().any(|row| row.model.starts_with("gpt-5.")));
         println!("{}", serde_json::to_string(&rows).expect("serialize"));
         eprintln!("rows={} elapsed={:?}", rows.len(), started.elapsed());
     }

@@ -658,3 +658,10 @@
 2. `data_source_status` 持久化各 adapter 的 lastRun/lastSuccess/lastError（表已建好）
 3. 週期 reset rule 引擎（`usage_limits.reset_rule` 欄位已預留）：手動來源也能自動推算下次 resetAt
 4. Windows build 驗證（見 docs/cross-platform.md 清單）
+# 2026-07-22 — 成本統計補齊 Codex 與 GPT-5.6
+
+- 根因：既有成本統計只呼叫 `read_claude_usage_daily`，完全沒有掃描 Codex session，並非單純前端漏顯示。
+- 新增 `read_codex_usage_daily`，掃 active + archived JSONL，以 `last_token_usage` delta 配對當下 `turn_context.model`，避免 cumulative total 或模型切換造成重複／錯置。
+- 統計頁同時載入 Claude 與 Codex；單一來源失敗時仍顯示另一來源並提示。表格新增來源欄，local usage 更新事件涵蓋兩個 Provider。
+- Codex 支援 `gpt-5.5`、`gpt-5.6-sol/terra/luna` 定價；Input 與 cached input 分欄並分別計價。
+- 實機掃描 85 個 daily×model rows，確認 2026-07 有 `gpt-5.5`、`gpt-5.6-sol` 與 `codex-auto-review`。

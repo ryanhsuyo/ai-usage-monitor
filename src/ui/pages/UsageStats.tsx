@@ -2,7 +2,7 @@
 // daily / weekly / monthly periods with per-model token counts and API-equivalent USD.
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { aggregateClaudeUsage, summarizeUsagePeriods, type DailyModelUsage, type PeriodGranularity } from "@/domain/usageStats";
+import { aggregateUsage, summarizeUsagePeriods, type DailyModelUsage, type PeriodGranularity } from "@/domain/usageStats";
 import { EmptyState } from "../components/atoms";
 
 const GRANULARITY_OPTIONS: Array<{ id: PeriodGranularity; label: string }> = [
@@ -38,6 +38,7 @@ export function UsageStatsPage() {
   const [granularity, setGranularity] = useState<PeriodGranularity>("daily");
   const [loadedAt, setLoadedAt] = useState<Date>();
   const [loading, setLoading] = useState(false);
+  const [sourceWarning, setSourceWarning] = useState<string>();
   const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -46,10 +47,17 @@ export function UsageStatsPage() {
     setLoading(true);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke<DailyModelUsage[]>("read_claude_usage_daily", {
-        utcOffsetMinutes: -new Date().getTimezoneOffset(),
-      });
-      setRows(result);
+      const args = { utcOffsetMinutes: -new Date().getTimezoneOffset() };
+      const results = await Promise.allSettled([
+        invoke<DailyModelUsage[]>("read_claude_usage_daily", args),
+        invoke<DailyModelUsage[]>("read_codex_usage_daily", args),
+      ]);
+      if (results.every((result) => result.status === "rejected")) {
+        throw new Error(results.map((result) => result.status === "rejected" ? String(result.reason) : "").join("；"));
+      }
+      setRows(results.flatMap((result) => result.status === "fulfilled" ? result.value : []));
+      const missing = results.flatMap((result, index) => result.status === "rejected" ? [index === 0 ? "Claude" : "Codex"] : []);
+      setSourceWarning(missing.length ? `${missing.join("、")} 本機紀錄目前無法讀取` : undefined);
       setLoadedAt(new Date());
       setError(undefined);
     } catch (e) {
@@ -64,13 +72,13 @@ export function UsageStatsPage() {
     void load();
     const onUsageUpdated = (event: Event) => {
       const providerId = (event as CustomEvent<{ providerId?: string }>).detail?.providerId;
-      if (providerId === "claude") void load();
+      if (providerId === "claude" || providerId === "codex") void load();
     };
     window.addEventListener("local-usage-updated", onUsageUpdated);
     return () => window.removeEventListener("local-usage-updated", onUsageUpdated);
   }, [load]);
 
-  const periods = useMemo(() => (rows ? aggregateClaudeUsage(rows, granularity) : []), [rows, granularity]);
+  const periods = useMemo(() => (rows ? aggregateUsage(rows, granularity) : []), [rows, granularity]);
   const summary = useMemo(() => summarizeUsagePeriods(periods), [periods]);
 
   if (error) {
@@ -78,7 +86,7 @@ export function UsageStatsPage() {
       <EmptyState
         icon="◌"
         title="讀不到本機對話紀錄"
-        body={`此頁從 ~/.claude/projects 的 Claude Code 對話紀錄計算成本，需在桌面 App 中使用。（${error}）`}
+        body={`此頁從 Claude Code 與 Codex 的本機對話紀錄計算成本，需在桌面 App 中使用。（${error}）`}
       />
     );
   }
@@ -88,7 +96,7 @@ export function UsageStatsPage() {
       <header>
         <div>
           <h1>成本統計</h1>
-          <p>本機 Claude Code 全部歷史的 API 等值成本（非訂閱實際扣款）</p>
+          <p>本機 Claude Code 與 Codex 全部歷史的 API 等值成本（非訂閱實際扣款）</p>
         </div>
         <div className="row" role="tablist" aria-label="統計區間">
           {loadedAt && <span className="hint">擷取 {loadedAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
@@ -109,11 +117,12 @@ export function UsageStatsPage() {
           ))}
         </div>
       </header>
+      {sourceWarning && <p className="hint">⚠ {sourceWarning}，以下顯示其餘來源。</p>}
 
       {rows === null ? (
         <div className="section"><p>讀取本機對話紀錄中…</p></div>
       ) : periods.length === 0 ? (
-        <EmptyState icon="◌" title="沒有可統計的用量" body="~/.claude/projects 中還沒有含 token 用量的對話紀錄。" />
+        <EmptyState icon="◌" title="沒有可統計的用量" body="Claude Code 與 Codex 本機紀錄中還沒有 token 用量。" />
       ) : (
         <>
           <div className="section stats-summary">
@@ -130,6 +139,7 @@ export function UsageStatsPage() {
               <thead>
                 <tr>
                   <th>{granularity === "monthly" ? "月份" : granularity === "weekly" ? "週（週一起算）" : "日期"}</th>
+                  <th>來源</th>
                   <th>模型</th>
                   <th>Input</th>
                   <th>Output</th>
@@ -144,6 +154,7 @@ export function UsageStatsPage() {
                   <Fragment key={period.period}>
                     <tr className="stats-period-row">
                       <td><strong>{periodLabel(period.period, granularity)}</strong></td>
+                      <td>{new Set(period.models.map((model) => model.providerId)).size > 1 ? "全部" : period.models[0]!.providerId === "claude" ? "Claude" : "Codex"}</td>
                       <td>{period.models.length > 1 ? `${period.models.length} 個模型` : modelLabel(period.models[0]!.model)}</td>
                       <td>{tokens(period.inputTokens)}</td>
                       <td>{tokens(period.outputTokens)}</td>
@@ -153,8 +164,9 @@ export function UsageStatsPage() {
                       <td><strong>{cost(period.cost, period.hasUnpricedModels)}</strong></td>
                     </tr>
                     {period.models.length > 1 && period.models.map((model) => (
-                      <tr key={`${period.period}:${model.model}`} className="stats-model-row">
+                      <tr key={`${period.period}:${model.providerId}:${model.model}`} className="stats-model-row">
                         <td></td>
+                        <td>{model.providerId === "claude" ? "Claude" : "Codex"}</td>
                         <td>└ {modelLabel(model.model)}</td>
                         <td>{tokens(model.inputTokens)}</td>
                         <td>{tokens(model.outputTokens)}</td>
@@ -170,7 +182,7 @@ export function UsageStatsPage() {
             </table>
           </div>
           <p className="hint" style={{ marginTop: 8 }}>
-            ※ 依官方 API 牌價估算（cache 寫入依 TTL 計價：5 分鐘 1.25×、1 小時 2×；讀取 0.1×），為 API 等值成本，不是訂閱實際扣款。
+            ※ 依各 Provider 官方 API 牌價估算；Claude cache 寫入依 TTL 計價，Codex cached input 依模型折扣價計算。這是 API 等值成本，不是訂閱實際扣款。
           </p>
         </>
       )}

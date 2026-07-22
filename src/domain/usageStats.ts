@@ -2,8 +2,12 @@
 // daily / weekly / monthly periods with API-equivalent cost per model.
 
 import { claudePrice } from "./claudeCost";
+import { codexPrice } from "./codexCost";
+
+export type UsageStatsProvider = "claude" | "codex";
 
 export type DailyModelUsage = {
+  providerId: UsageStatsProvider;
   date: string; // YYYY-MM-DD (local)
   model: string;
   inputTokens: number;
@@ -20,6 +24,7 @@ export type DailyModelUsage = {
 export type PeriodGranularity = "daily" | "weekly" | "monthly";
 
 export type ModelPeriodUsage = {
+  providerId: UsageStatsProvider;
   model: string;
   inputTokens: number;
   cacheCreationTokens: number;
@@ -61,7 +66,7 @@ export function periodKey(date: string, granularity: PeriodGranularity): string 
   return date;
 }
 
-export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: PeriodGranularity, nowIso?: string): PeriodUsage[] {
+export function aggregateUsage(rows: DailyModelUsage[], granularity: PeriodGranularity, nowIso?: string): PeriodUsage[] {
   const byPeriod = new Map<string, Map<string, ModelPeriodUsage>>();
   for (const row of rows) {
     const key = periodKey(row.date, granularity);
@@ -70,10 +75,11 @@ export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: Perio
       models = new Map();
       byPeriod.set(key, models);
     }
-    let entry = models.get(row.model);
+    const modelKey = `${row.providerId}:${row.model}`;
+    let entry = models.get(modelKey);
     if (!entry) {
-      entry = { model: row.model, inputTokens: 0, cacheCreationTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, cacheReadTokens: 0, outputTokens: 0, messageCount: 0 };
-      models.set(row.model, entry);
+      entry = { providerId: row.providerId, model: row.model, inputTokens: 0, cacheCreationTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, cacheReadTokens: 0, outputTokens: 0, messageCount: 0 };
+      models.set(modelKey, entry);
     }
     entry.inputTokens += row.inputTokens;
     entry.cacheCreationTokens += row.cacheCreationTokens;
@@ -87,18 +93,24 @@ export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: Perio
   const periods: PeriodUsage[] = [];
   for (const [period, models] of byPeriod) {
     const modelRows = [...models.values()].map((entry) => {
-      const price = claudePrice(entry.model, nowIso);
       // Cache writes without a TTL breakdown are billed as 1-hour writes (Claude Code default).
       const cacheWrite5m = Math.min(entry.cacheCreationTokens, entry.cacheCreation5mTokens);
       const cacheWrite1h = Math.min(entry.cacheCreationTokens - cacheWrite5m, entry.cacheCreation1hTokens);
       const untaggedWrites = entry.cacheCreationTokens - cacheWrite5m - cacheWrite1h;
-      const cost = price ? (
-        entry.inputTokens * price.input +
-        cacheWrite5m * price.cacheWrite5m +
-        (cacheWrite1h + untaggedWrites) * price.cacheWrite1h +
-        entry.cacheReadTokens * price.cacheRead +
-        entry.outputTokens * price.output
-      ) / 1_000_000 : undefined;
+      const cost = entry.providerId === "claude" ? (() => {
+        const price = claudePrice(entry.model, nowIso);
+        return price ? (
+          entry.inputTokens * price.input + cacheWrite5m * price.cacheWrite5m +
+          (cacheWrite1h + untaggedWrites) * price.cacheWrite1h +
+          entry.cacheReadTokens * price.cacheRead + entry.outputTokens * price.output
+        ) / 1_000_000 : undefined;
+      })() : (() => {
+        const price = codexPrice(entry.model);
+        return price ? (
+          entry.inputTokens * price.input +
+          entry.cacheReadTokens * price.cached + entry.outputTokens * price.output
+        ) / 1_000_000 : undefined;
+      })();
       return { ...entry, cost };
     });
     modelRows.sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0) || b.outputTokens - a.outputTokens);
@@ -118,6 +130,9 @@ export function aggregateClaudeUsage(rows: DailyModelUsage[], granularity: Perio
   periods.sort((a, b) => b.period.localeCompare(a.period));
   return periods;
 }
+
+/** Backward-compatible alias for existing callers. */
+export const aggregateClaudeUsage = aggregateUsage;
 
 export function summarizeUsagePeriods(periods: PeriodUsage[]) {
   return {

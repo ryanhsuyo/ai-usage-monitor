@@ -2,7 +2,7 @@ import { aggregateClaudeUsage, periodKey, summarizeUsagePeriods, weekStart, type
 
 function row(overrides: Partial<DailyModelUsage>): DailyModelUsage {
   return {
-    date: "2026-07-19", model: "claude-opus-4-8",
+    providerId: "claude", date: "2026-07-19", model: "claude-opus-4-8",
     inputTokens: 0, cacheCreationTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0,
     cacheReadTokens: 0, outputTokens: 0, messageCount: 1,
     ...overrides,
@@ -99,5 +99,18 @@ describe("aggregateClaudeUsage", () => {
       (1000 * 5 + 500_000 * 0.5 + 2000 * 25) / 1e6 + (500 * 5 + 1000 * 25) / 1e6 + 50 + 1,
       5
     );
+  });
+
+  it("keeps providers separate and prices Codex gpt-5.5 and gpt-5.6 models", () => {
+    const monthly = aggregateClaudeUsage([
+      row({ providerId: "codex", model: "gpt-5.5", inputTokens: 400_000, cacheReadTokens: 600_000, outputTokens: 100_000 }),
+      row({ providerId: "codex", model: "gpt-5.6-sol", inputTokens: 500_000, cacheReadTokens: 1_500_000, outputTokens: 200_000 }),
+      row({ providerId: "claude", model: "gpt-5.6-sol", outputTokens: 10 }),
+    ], "monthly");
+    expect(monthly[0]!.models).toHaveLength(3);
+    expect(monthly[0]!.models.find((model) => model.providerId === "codex" && model.model === "gpt-5.5")!.cost)
+      .toBeCloseTo(5.3, 5);
+    expect(monthly[0]!.models.find((model) => model.providerId === "codex" && model.model === "gpt-5.6-sol")!.cost)
+      .toBeCloseTo(9.25, 5);
   });
 });

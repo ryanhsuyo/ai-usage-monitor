@@ -327,6 +327,7 @@ pub fn run() {
             local_usage::read_codex_local_usage,
             local_usage::read_claude_local_usage,
             local_usage::read_claude_usage_daily,
+            local_usage::read_codex_usage_daily,
             secret::secret_set,
             secret::secret_get,
             secret::secret_delete,

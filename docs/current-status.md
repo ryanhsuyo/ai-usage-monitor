@@ -11,9 +11,9 @@
 |---|---|
 | `pnpm typecheck` | ✅ 0 errors（TS strict） |
 | `pnpm lint` | ✅ 0 errors / 0 warnings |
-| `pnpm test` | ✅ 213/213（22 檔） |
+| `pnpm test` | ✅ 214/214（22 檔） |
 | `pnpm tauri build` | ✅ `.app` + `.dmg`（unsigned） |
-| Rust `cargo test` | ✅ 8 個解析測試 + 2 個 `#[ignore]` 實機測試 |
+| Rust `cargo test` | ✅ 15 個測試 + 3 個 `#[ignore]` 實機測試 |
 
 ## 已完成
 
@@ -78,6 +78,7 @@
 - Discord 通知同時送出可見純文字與詳細 Embed；即使 Discord 客戶端暫時未渲染 Embed，也不會只留下沒有內容的 Webhook 訊息
 - 新增「成本統計」頁（ccusage 風格）：掃描 `~/.claude/projects` 全部本機對話紀錄，依 message.id 去重後以每日×模型彙總（Rust `read_claude_usage_daily`，數百 MB 歷史約 0.5 秒），前端純函式聚合成每日／每週（週一起算）／每月檢視，顯示 Input／Output／Cache 寫讀 token、訊息數與 API 等值美元；多模型期間逐模型分項。定價表更新為官方牌價（Fable $10/$50、Opus $5/$25、Sonnet $3/$15 促銷 $2/$10 至 2026-08-31、Haiku $1/$5；cache 寫入依 TTL 分項計價 5m=1.25×／1h=2×、讀 0.1×）並支援帶日期字尾的模型 ID，已與 ccusage 月報實測對帳（誤差 <0.3%），未定價模型如實標示且總額顯示 `≥`
 - 成本統計去重改為同一 message.id 各欄取最完整（最大）值，避免 resumed／parent／sidechain 的 0 或 partial 副本依檔案走訪順序覆蓋完整 usage；TTL 5m／1h 分項總和強制不超過 cache-creation 官方總數。頁面監聽 Claude transcript 活動自動重掃，另顯示擷取時間與手動重新整理，避免拿舊頁面和剛執行的 ccusage 比較
+- 成本統計加入 Codex 全歷史：同時掃描 `~/.codex/sessions` 與 `~/.codex/archived_sessions`，依每次 `last_token_usage` 與當時 `turn_context.model` 彙總，支援 session 中途切換模型；2026-07 的 `gpt-5.5`、`gpt-5.6-sol/terra/luna` 會與 Claude 分來源顯示。Codex Input 已扣除 cached input，Cache 讀取獨立成欄，並依官方牌價估算 API 等值
 - 未簽章（ad-hoc）build 不再於每次重建後觸發 macOS Keychain 授權彈窗：Rust 以 `codesign -dv` 偵測自身為 ad-hoc 簽名時，SecretStore 改用既有加密檔備援（DataSources 頁如實顯示「加密檔案」）；Keychain 內既有 secret 於第一次讀取時做一次性遷移（最後允許一次），之後所有重建都不再彈窗。取得正式簽章（Phase 5）後自動回到 Keychain
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次
