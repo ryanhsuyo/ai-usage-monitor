@@ -32,11 +32,19 @@ function modelLabel(model: string) {
   return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
 }
 
+// Survives navigation away from the page. Parsing the full transcript history takes ~3s (the Codex
+// log alone is >1GB), and the component unmounts on every page switch, so without this each visit
+// re-parsed from scratch behind a spinner. Now a return visit shows the last result instantly and
+// refreshes in the background. Module-level rather than store state because it is a pure cache of a
+// derived read — nothing else depends on it.
+let cachedRows: DailyModelUsage[] | null = null;
+let cachedAt: Date | undefined;
+
 export function UsageStatsPage() {
-  const [rows, setRows] = useState<DailyModelUsage[] | null>(null);
+  const [rows, setRows] = useState<DailyModelUsage[] | null>(cachedRows);
   const [error, setError] = useState<string>();
   const [granularity, setGranularity] = useState<PeriodGranularity>("daily");
-  const [loadedAt, setLoadedAt] = useState<Date>();
+  const [loadedAt, setLoadedAt] = useState<Date | undefined>(cachedAt);
   const [loading, setLoading] = useState(false);
   const [sourceWarning, setSourceWarning] = useState<string>();
   const loadingRef = useRef(false);
@@ -55,10 +63,14 @@ export function UsageStatsPage() {
       if (results.every((result) => result.status === "rejected")) {
         throw new Error(results.map((result) => result.status === "rejected" ? String(result.reason) : "").join("；"));
       }
-      setRows(results.flatMap((result) => result.status === "fulfilled" ? result.value : []));
+      const merged = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      const at = new Date();
+      cachedRows = merged;
+      cachedAt = at;
+      setRows(merged);
       const missing = results.flatMap((result, index) => result.status === "rejected" ? [index === 0 ? "Claude" : "Codex"] : []);
       setSourceWarning(missing.length ? `${missing.join("、")} 本機紀錄目前無法讀取` : undefined);
-      setLoadedAt(new Date());
+      setLoadedAt(at);
       setError(undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
