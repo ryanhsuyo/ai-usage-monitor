@@ -322,8 +322,17 @@ fn session_usage(path: &Path, cycle_start: i64) -> Option<(String, String, Model
     latest.map(|(timestamp, usage)| (timestamp, model, usage))
 }
 
+// Off the main thread for the same reason as the daily commands, and more pressingly: this runs on
+// every file-watch-triggered collection (i.e. whenever you use Codex), and it also spawns the
+// app-server. As a synchronous command that was a recurring main-thread stall, not a one-off.
 #[tauri::command]
-pub fn read_codex_local_usage() -> Result<Vec<LocalUsageReading>, String> {
+pub async fn read_codex_local_usage() -> Result<Vec<LocalUsageReading>, String> {
+    tauri::async_runtime::spawn_blocking(read_codex_local_usage_inner)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn read_codex_local_usage_inner() -> Result<Vec<LocalUsageReading>, String> {
     let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
     let mut files = Vec::new();
     jsonl_files(&Path::new(&home).join(".codex/sessions"), &mut files);
@@ -455,8 +464,18 @@ pub struct DailyModelUsage {
 
 /// Aggregate the full local Claude Code transcript history into per-day, per-model token totals
 /// (ccusage-style). Dates are bucketed in the caller's timezone via `utc_offset_minutes`.
+// Async so Tauri runs it off the webview's main thread. The body parses the whole Claude/Codex
+// transcript history (hundreds of MB), which as a synchronous command froze the UI — the beach
+// ball when opening the cost-stats page. spawn_blocking moves that IO to the blocking pool; the
+// React spinner then animates normally while it runs.
 #[tauri::command]
-pub fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
+pub async fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
+    tauri::async_runtime::spawn_blocking(move || read_claude_usage_daily_inner(utc_offset_minutes))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn read_claude_usage_daily_inner(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
     let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
     let mut files = Vec::new();
     jsonl_files(&Path::new(&home).join(".claude/projects"), &mut files);
@@ -471,7 +490,13 @@ pub fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModel
 /// event contains a delta in `last_token_usage`; using that delta avoids assigning a session's
 /// cumulative total to the final model when the user switches models mid-session.
 #[tauri::command]
-pub fn read_codex_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
+pub async fn read_codex_usage_daily(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
+    tauri::async_runtime::spawn_blocking(move || read_codex_usage_daily_inner(utc_offset_minutes))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn read_codex_usage_daily_inner(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
     let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
     let mut files = Vec::new();
     jsonl_files(&Path::new(&home).join(".codex/sessions"), &mut files);
@@ -625,7 +650,13 @@ fn claude_limit_descriptor(limit: &Value) -> Option<ClaudeLimitDescriptor> {
 }
 
 #[tauri::command]
-pub fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
+pub async fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String> {
+    tauri::async_runtime::spawn_blocking(read_claude_local_usage_inner)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn read_claude_local_usage_inner() -> Result<Vec<LocalUsageReading>, String> {
     let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
     let body = fs::read_to_string(Path::new(&home).join(".claude.json"))
         .map_err(|_| "找不到 Claude Code 本機設定".to_string())?;
@@ -879,7 +910,7 @@ mod tests {
     #[ignore = "live check: reads the real ~/.claude/projects transcript history"]
     fn read_claude_usage_daily_live() {
         let started = Instant::now();
-        let rows = read_claude_usage_daily(8 * 60).expect("daily usage");
+        let rows = read_claude_usage_daily_inner(8 * 60).expect("daily usage");
         assert!(!rows.is_empty());
         // Full JSON dump on stdout so the result can be cross-checked against ccusage.
         println!("{}", serde_json::to_string(&rows).expect("serialize"));
@@ -890,7 +921,7 @@ mod tests {
     #[ignore = "live check: reads the real ~/.codex session history"]
     fn read_codex_usage_daily_live() {
         let started = Instant::now();
-        let rows = read_codex_usage_daily(8 * 60).expect("daily usage");
+        let rows = read_codex_usage_daily_inner(8 * 60).expect("daily usage");
         assert!(!rows.is_empty());
         assert!(rows.iter().any(|row| row.model.starts_with("gpt-5.")));
         println!("{}", serde_json::to_string(&rows).expect("serialize"));

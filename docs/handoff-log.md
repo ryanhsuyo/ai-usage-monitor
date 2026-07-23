@@ -1,5 +1,14 @@
 # Handoff Log
 
+## 2026-07-23 — 成本統計切頁卡住（彩虹球）：重量級指令改為非同步
+
+- 使用者回報切到「成本統計」會轉圈／卡住很久，且這類停頓「蠻常發生」。彩虹球＝webview 主執行緒被卡。
+- 根因：`read_claude_usage_daily`／`read_codex_usage_daily`／`read_claude_local_usage`／`read_codex_local_usage` 四個 `#[tauri::command]` 都是**同步 `pub fn`**。Tauri v2 的同步指令在主執行緒執行——解析全部 transcript 期間 UI 完全凍結。
+- 量化：Claude 280MB／191 檔 = 855ms；Codex **1.6GB**／85 檔 = 2.16s。兩者由前端並行 invoke，但主執行緒序列化執行 ≈ 3 秒凍結，且只會隨紀錄增長。後兩個指令更在每次檔案監聽觸發的收集時執行（一用 Codex 就卡一下），即「蠻常發生」的來源。
+- 修正：四個指令改 `pub async fn` + `tauri::async_runtime::spawn_blocking(inner)`，重活移到 blocking pool，主執行緒與 async runtime 皆保持回應。同步邏輯保留為 `_inner` 私有函式（live 測試改呼叫 `_inner`）。前端無需改動，`invoke` 本就 async，React 的 `loading` 轉圈會正常動畫而非卡死彩虹球。
+- 15 Rust 測試綠；release build 通過。
+- **可選後續（未做）**：`UsageStats` 每次切入都重新抓取（元件卸載後 `rows` 歸零），故每次仍有約 3 秒轉圈。若要再順，可把結果快取到 store／模組層做 stale-while-revalidate（先顯示上次資料、背景刷新）。
+
 ## 2026-07-22 — codex-auto-review 由「未定價」改為 gpt-5 完整層級定價
 
 - 使用者比對成本統計頁與 ccusage：`codex-auto-review` 顯示「未定價」，但明明有大量用量。
