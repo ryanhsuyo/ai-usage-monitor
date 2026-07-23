@@ -12,9 +12,17 @@ const OPENAI_PRICES: Record<string, { input: number; cached: number; output: num
   "gpt-5.6-luna": { input: 1, cached: 0.1, output: 6 },
 };
 
+// Codex logs some turns under an agent label instead of a base model. codex-auto-review is the
+// automatic code-review pass; it runs on the full gpt-5 model, so it is priced at that tier.
+// Pricing it (rather than leaving it "unpriced") is what reconciles the Codex total with ccusage
+// to the cent — ccusage attributes the same tokens to the full-tier price.
+const MODEL_ALIASES: Record<string, string> = {
+  "codex-auto-review": "gpt-5.5",
+};
+
 export function codexPrice(model: string) {
   const normalized = model.toLowerCase().replace(/-\d{4}-\d{2}-\d{2}$/, "");
-  return OPENAI_PRICES[normalized];
+  return OPENAI_PRICES[MODEL_ALIASES[normalized] ?? normalized];
 }
 
 export function estimateCodexApiEquivalent(models: CodexModelUsage[]) {

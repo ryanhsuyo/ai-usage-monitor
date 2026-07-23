@@ -1,5 +1,13 @@
 # Handoff Log
 
+## 2026-07-22 — codex-auto-review 由「未定價」改為 gpt-5 完整層級定價
+
+- 使用者比對成本統計頁與 ccusage：`codex-auto-review` 顯示「未定價」，但明明有大量用量。
+- 查證：`codex-auto-review` 是 Codex session JSONL 裡 `turn_context` 事件的 `model` 值（自動審查代理），出現 1266 次，但 payload 無 `base_model`／`model_slug`，是個沒有公開 API 價的內部標籤，故 `codexPrice` 回 undefined → 未定價。
+- 它其實跑在完整 gpt-5 模型上。以 Python 複刻 Rust 歸屬邏輯，codex-auto-review 的 token 用 gpt-5.5 費率 = **$28.01**，正好等於我們 Codex 總額（$693.54）與 ccusage（$721.55）的差額——ccusage 就是把這些 token 按完整層級定價。修正後三模型合計 $721.55，與 ccusage 分毫不差。
+- 修正：`codexCost.ts` 加 `MODEL_ALIASES`，`codex-auto-review → gpt-5.5`（gpt-5.5／gpt-5.6-sol 費率相同，皆 5／0.5／30）。新增 `codexCost.test.ts` 5 例。
+- **附帶發現（未修）**：`session_usage`（local_usage.rs:308）的 model 會被任何帶 `/payload/model` 的事件更新，且只保留該 session 最後一筆 `total_token_usage`（累計）——所以一個 session 若最後動作是 auto-review，整個 session 的累計 token 都記到 codex-auto-review 名下。因 codex-auto-review 與 gpt-5.5 費率相同，**總額不受影響**（ccusage 到分吻合可證），僅逐模型的列分配略有偏移。若日後要精準拆分需改為逐 delta 歸屬。
+
 ## 2026-07-22 — 啟動變慢／偶爾卡 5 分鐘：先畫再抓 + 補上 Codex 逾時
 
 - 使用者回報打開要載入很久，多半 30 秒~1 分鐘，這次到 5 分鐘。5 分鐘不是「慢」是「卡住」。
