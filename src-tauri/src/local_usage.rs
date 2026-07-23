@@ -72,13 +72,29 @@ fn read_codex_app_server() -> Result<Value, String> {
         .spawn().map_err(|error| format!("無法啟動 Codex app-server: {error}"))?;
     let mut stdin = child.stdin.take().ok_or_else(|| "無法開啟 Codex app-server stdin".to_string())?;
     let stdout = child.stdout.take().ok_or_else(|| "無法開啟 Codex app-server stdout".to_string())?;
-    let mut reader = BufReader::new(stdout);
-    writeln!(stdin, "{}", r#"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"ai-usage-monitor","version":"0.1.0"},"capabilities":{"experimentalApi":true}}}"#).map_err(|error| error.to_string())?;
-    stdin.flush().map_err(|error| error.to_string())?;
-    read_codex_response(&mut reader, 1)?;
-    writeln!(stdin, "{}", r#"{"id":2,"method":"account/rateLimits/read","params":null}"#).map_err(|error| error.to_string())?;
-    stdin.flush().map_err(|error| error.to_string())?;
-    let result = read_codex_response(&mut reader, 2);
+
+    // The whole initialize → rateLimits exchange runs on a reader thread behind a timeout, mirroring
+    // the Claude fetch. read_codex_response's read_line is blocking: an app-server that spawns but
+    // never answers (ChatGPT app signed out, waiting on the network) would otherwise hang here
+    // indefinitely — the observed multi-minute launches, since kill() below is never reached. On
+    // timeout the child is killed, which closes the pipe and lets the thread unwind.
+    let (sender, receiver) = std::sync::mpsc::channel::<Result<Value, String>>();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let exchange = (|| {
+            writeln!(stdin, "{}", r#"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"ai-usage-monitor","version":"0.1.0"},"capabilities":{"experimentalApi":true}}}"#).map_err(|error| error.to_string())?;
+            stdin.flush().map_err(|error| error.to_string())?;
+            read_codex_response(&mut reader, 1)?;
+            writeln!(stdin, "{}", r#"{"id":2,"method":"account/rateLimits/read","params":null}"#).map_err(|error| error.to_string())?;
+            stdin.flush().map_err(|error| error.to_string())?;
+            read_codex_response(&mut reader, 2)
+        })();
+        let _ = sender.send(exchange);
+    });
+    let result = match receiver.recv_timeout(Duration::from_secs(20)) {
+        Ok(outcome) => outcome,
+        Err(_) => Err("Codex app-server 逾時未回應".to_string()),
+    };
     let _ = child.kill();
     let _ = child.wait();
     result

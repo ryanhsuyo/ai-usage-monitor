@@ -381,11 +381,25 @@ function useBootstrap() {
 
     void (async () => {
       const services = await getAppServices();
+
+      // Paint the stored data first. The live collectLocalUsage() below shells out to the Claude
+      // CLI (~2–3s) and the Codex app-server, and the first render depends on none of it — every
+      // snapshot it would show is already in SQLite. Gating `ready` on that fetch left the window
+      // sitting on the spinner for seconds each launch.
+      await refresh();
+      // A returning user (limits already exist) sees them immediately; the live fetch updates the
+      // numbers a moment later. A genuine first run has no limits yet, so keep it on the spinner
+      // until the fetch has had a chance to import some — otherwise the onboarding screen flashes
+      // before the auto-import flips it to the dashboard.
+      const returning = useAppStore.getState().limits.length > 0;
+      if (!disposed && returning) setReady(true);
+
       const imported = (await services.collectLocalUsage().catch(() => undefined))?.inserted ?? 0;
       if (imported > 0) {
         await services.settingsRepo.set(SETTINGS_KEYS.onboardingCompleted, "true");
         await services.settingsRepo.set(SETTINGS_KEYS.pollingEnabled, "true");
       }
+      // Reflect whatever the live fetch brought in (or the onboarding flags just set).
       await refresh();
 
       // apply the persisted background-mode preference to the native layer

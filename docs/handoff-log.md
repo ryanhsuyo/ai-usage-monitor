@@ -1,5 +1,15 @@
 # Handoff Log
 
+## 2026-07-22 — 啟動變慢／偶爾卡 5 分鐘：先畫再抓 + 補上 Codex 逾時
+
+- 使用者回報打開要載入很久，多半 30 秒~1 分鐘，這次到 5 分鐘。5 分鐘不是「慢」是「卡住」。
+- **兩個獨立成因**：
+  1. **UI 被擋在即時抓取後面**（`useBootstrap`，App.tsx）。原順序是 `collectLocalUsage()` → `refresh()` → … → `setReady(true)`。第一步 spawn Claude CLI（實測 1.8–2.8s）與 Codex app-server，但畫面要的資料 `refresh()` 從 SQLite 一讀就有——即時抓取對首次渲染完全非必要。改為先 `refresh()` 畫出已存資料、回訪者（已有 limits）立刻 `setReady(true)`，即時抓取移到背景，抓完再 `refresh()` 一次更新數字。首次啟動（尚無 limits）維持等待，避免 onboarding 畫面閃現。
+  2. **Codex 抓取無逾時**（`read_codex_app_server`，local_usage.rs）。Claude 那條用 reader thread + `recv_timeout(20s)`，Codex 卻是同步阻塞 `read_line` 迴圈。app-server 成功啟動但不回應（ChatGPT app 登出／等網路）時 `read_line` 永遠等待，且其後的 `child.kill()` 永遠到不了——就是那 30 秒~5 分鐘的間歇卡頓。改成同一套 thread + `recv_timeout(20s)` 模式包住整段 initialize → rateLimits 交握；逾時即 kill child，關閉 pipe 讓 thread 收尾。
+- 合起來：即時抓取最壞 20 秒且在背景，回訪者的視窗幾乎立即顯示。
+- 驗證：Claude CLI 逐次計時 1.76／2.79s；瀏覽器 1.5s 內已離開「載入中…」顯示內容；214 TS + 15 Rust 全綠；`cargo build` 通過。
+- **未加**：Codex 逾時的專屬單元測試——`read_codex_app_server` 直接 spawn 真實 `codex` 子行程（與既有 `#[ignore]` live 測試同性質），要測逾時需把 reader 抽成可注入，暫不為此重構。
+
 ## 2026-07-22 — 修正成本統計與 ccusage 的落差
 
 - 實機發現 7 月有 81 組同 message.id、usage 內容不同的副本；舊邏輯 first-seen wins 會依 filesystem 順序選到 0／partial 副本，至少少算 13,343 output tokens。
