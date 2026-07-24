@@ -68,6 +68,19 @@ src-tauri/       Rust：migrations、keyring 指令、tray、關窗隱藏、plug
 
 > 為未簽章（unsigned）建置：第一次開啟需在「系統設定 → 隱私權與安全性」允許，或對 App 右鍵→打開。正式簽章與 notarization 在 Roadmap Phase 5。
 
+## 使用者安裝（Windows 10 / 11）
+
+Windows x64 測試版使用 NSIS 安裝程式：
+
+```text
+下載 AI Usage Monitor_*_x64-setup.exe → 執行 → 完成安裝
+```
+
+未簽章測試版可能出現 Microsoft Defender SmartScreen。點擊「其他資訊」後選擇
+「仍要執行」即可繼續；公司管理的電腦可能由系統管理原則禁止未簽章程式。
+Windows 版仍需在實際 Windows 10／11 電腦驗證視窗、tray、自動啟動與本機
+Claude Code／Codex 安裝路徑，交叉編譯成功不等同完成實機驗收。
+
 ## 開發
 
 ### 環境需求

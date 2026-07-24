@@ -692,3 +692,39 @@
 - 統計頁同時載入 Claude 與 Codex；單一來源失敗時仍顯示另一來源並提示。表格新增來源欄，local usage 更新事件涵蓋兩個 Provider。
 - Codex 支援 `gpt-5.5`、`gpt-5.6-sol/terra/luna` 定價；Input 與 cached input 分欄並分別計價。
 - 實機掃描 85 個 daily×model rows，確認 2026-07 有 `gpt-5.5`、`gpt-5.6-sol` 與 `codex-auto-review`。
+
+# 2026-07-23 — 防止 macOS 一般 Quit 中斷背景監測
+
+- 系統 unified log 證實正式版不是 crash：收到 Dock 發出的 `(aevt,quit)`，AppKit 回覆 `applicationShouldTerminate:YES` 後 voluntary exit。
+- 背景模式啟用時攔截無 exit code 的使用者 Quit（`⌘Q`／Dock Quit），隱藏主視窗並繼續執行；程式內 `app.exit(0)` 帶 exit code，Settings／tray 的明確 Quit 不受影響。
+- 新增退出來源診斷事件與 Rust 決策測試。
+
+# 2026-07-24 — 未簽章測試版 DMG 安裝提醒
+
+- 新增 760×500 自訂 DMG 背景，開啟 Finder 安裝視窗即可看到 App → Applications 拖曳方向。
+- 背景直接提供 Gatekeeper 阻擋後的中英文處理方式：「系統設定 → 隱私權與安全性 → 仍要打開」，並明示安全確認仍須由使用者完成。
+- Tauri DMG 設定固定視窗尺寸及兩個圖示位置，避免圖示覆蓋提醒內容；沒有加入會誤導成安全授權的 License Agreement。
+
+# 2026-07-24 — Windows 10/11 x64 未簽章測試版
+
+- 新增 `tauri.windows.conf.json`，Windows bundle 固定產生 NSIS；macOS private API feature 改為 target-specific，Windows 編譯不再帶入。
+- Rust 使用者目錄加入 `USERPROFILE` fallback；Claude/Codex binary 加入 Windows 候選路徑。前端檔案事件將 `\` 正規化，Windows 上也能辨識 `.claude.json`。
+- Windows 不呼叫 macOS Spaces API，也不套用 macOS 使用者 Quit 攔截；tray template icon 只在 macOS 啟用，避免 Windows 圖示被當成單色模板。
+- `cargo-xwin check` 通過；產出 x86_64 Windows GUI PE 與 unsigned NSIS installer。SHA-256：`6f2f98d974f87bdaae0da63531521fa91e762eac561476b146fe6fa199980cc9`。
+- 限制：目前僅完成 macOS host 交叉編譯與靜態格式檢查，尚未在 Windows 10/11 實機驗證安裝、WebView2、tray、自啟與 Claude/Codex 實際路徑。
+
+# 2026-07-24 — 首次設定改為自動偵測
+
+- 移除 onboarding 的 Provider 手選、帳號名稱、方案／月費／幣別、手動百分比與重置時間，避免要求使用者填入 App 無法驗證且監控不需要的資料。
+- 首頁改列 Claude Code、OpenAI / Codex 兩個可自動偵測的本機來源；可立即重新偵測，未找到時仍可完成設定並由背景同步稍後補上。
+- ChatGPT 網頁聊天保留為清楚的不可用狀態：一般 ChatGPT 模型限制並非 Codex 本機額度，且目前沒有官方個人額度 API，不能假裝自動抓取。
+- Onboarding 縮為三步，並新增 UI 測試，確保不再出現帳號與月費欄位。
+
+# 2026-07-24 — UI/UX 正式發布前整理
+
+- 依 UI/UX Pro Max 檢查結果保留既有深灰＋teal 產品語言，不進行無必要的整體換色或版型重做。
+- 極簡列的成本／Token 詳情可用 hover、滑鼠點擊、Enter 或 Space 開關；focus 與展開狀態只影響所選列。
+- 提高極簡列及小工具的關鍵字級與文字對比，同步更新 Rust strip 高度計算與測試，避免較大字體被原生視窗裁切。
+- 側欄與小工具選單統一為同一組 outline SVG，不再混用 Unicode 結構 icon。
+- Switch 與視窗控制擴大可點範圍；Modal 開啟時移入焦點、Tab/Shift+Tab 留在對話框、關閉後回到原控制，並新增 UI 測試。
+- 加入 `prefers-reduced-motion`，以及 780px 以下縮成 icon rail 的桌面響應式布局，改善 Windows 高 DPI 與分割視窗。

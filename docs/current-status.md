@@ -11,9 +11,10 @@
 |---|---|
 | `pnpm typecheck` | ✅ 0 errors（TS strict） |
 | `pnpm lint` | ✅ 0 errors / 0 warnings |
-| `pnpm test` | ✅ 214/214（22 檔） |
+| `pnpm test` | ✅ 219/219（23 檔） |
 | `pnpm tauri build` | ✅ `.app` + `.dmg`（unsigned） |
-| Rust `cargo test` | ✅ 15 個測試 + 3 個 `#[ignore]` 實機測試 |
+| Windows x64 cross-build | ✅ NSIS `setup.exe`（unsigned；待 Windows 10/11 實機驗收） |
+| Rust `cargo test` | ✅ 16 個測試 + 3 個 `#[ignore]` 實機測試 |
 
 ## 已完成
 
@@ -79,6 +80,11 @@
 - 新增「成本統計」頁（ccusage 風格）：掃描 `~/.claude/projects` 全部本機對話紀錄，依 message.id 去重後以每日×模型彙總（Rust `read_claude_usage_daily`，數百 MB 歷史約 0.5 秒），前端純函式聚合成每日／每週（週一起算）／每月檢視，顯示 Input／Output／Cache 寫讀 token、訊息數與 API 等值美元；多模型期間逐模型分項。定價表更新為官方牌價（Fable $10/$50、Opus $5/$25、Sonnet $3/$15 促銷 $2/$10 至 2026-08-31、Haiku $1/$5；cache 寫入依 TTL 分項計價 5m=1.25×／1h=2×、讀 0.1×）並支援帶日期字尾的模型 ID，已與 ccusage 月報實測對帳（誤差 <0.3%），未定價模型如實標示且總額顯示 `≥`
 - 成本統計去重改為同一 message.id 各欄取最完整（最大）值，避免 resumed／parent／sidechain 的 0 或 partial 副本依檔案走訪順序覆蓋完整 usage；TTL 5m／1h 分項總和強制不超過 cache-creation 官方總數。頁面監聽 Claude transcript 活動自動重掃，另顯示擷取時間與手動重新整理，避免拿舊頁面和剛執行的 ccusage 比較
 - 成本統計加入 Codex 全歷史：同時掃描 `~/.codex/sessions` 與 `~/.codex/archived_sessions`，依每次 `last_token_usage` 與當時 `turn_context.model` 彙總，支援 session 中途切換模型；2026-07 的 `gpt-5.5`、`gpt-5.6-sol/terra/luna` 會與 Claude 分來源顯示。Codex Input 已扣除 cached input，Cache 讀取獨立成欄，並依官方牌價估算 API 等值
+- 背景監測啟用時，macOS 的 `⌘Q`／Dock Quit 改為隱藏視窗並繼續監測；Settings 與 tray 內明確的「完全結束」仍會真正退出。診斷紀錄會區分攔截的系統 Quit、明確退出與背景模式停用後的退出
+- 未簽章測試版 DMG 使用 760×500 自訂安裝背景：開啟即顯示拖曳至 Applications 的指引，以及被 Gatekeeper 阻擋時前往「系統設定 → 隱私權與安全性 → 仍要打開」的中英文提醒；不以 License 同意視窗冒充安全授權
+- Windows 10/11 x64 測試版可交叉編譯為 NSIS `setup.exe`：Rust 使用 `USERPROFILE` fallback、Windows Claude/Codex 執行檔候選路徑、反斜線檔案監聽相容、Windows Credential Manager，以及非 macOS 時跳過 Spaces／Quit 攔截；PE x64 與 NSIS 結構已驗證，尚未在 Windows 實機執行
+- 首次設定不再要求使用者手填帳號、方案價格、目前百分比或重置時間；改為直接偵測 Claude Code 與 OpenAI / Codex 本機來源。ChatGPT 網頁聊天明確標示無官方個人額度 API、目前不支援自動同步，避免與 Codex 共用的代理額度混為同一條
+- UI/UX 可用性整理：極簡列成本詳情除 hover 外也可點擊或以 Enter／Space 展開；小工具與極簡列提高文字對比和最小字級，並同步增加原生 strip 視窗高度避免裁切。側欄改用一致 outline SVG icon、Switch／視窗控制擴大點擊區、Modal 加入初始焦點／Tab focus trap／關閉後焦點復原，另支援 reduced-motion 與 780px 以下的高 DPI 緊湊側欄
 - 未簽章（ad-hoc）build 不再於每次重建後觸發 macOS Keychain 授權彈窗：Rust 以 `codesign -dv` 偵測自身為 ad-hoc 簽名時，SecretStore 改用既有加密檔備援（DataSources 頁如實顯示「加密檔案」）；Keychain 內既有 secret 於第一次讀取時做一次性遷移（最後允許一次），之後所有重建都不再彈窗。取得正式簽章（Phase 5）後自動回到 Keychain
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次
@@ -99,7 +105,7 @@
 
 - Phase 2 尚餘：transcript → 自動活動紀錄、context window warning；Full reset 到期目前已在小工具警示，尚未加入獨立通知事件
 - Phase 3：Browser 自動同步
-- Phase 4：Windows build（**架構邊界已保留**，TS 層無需改動）
+- Phase 4：Windows x64 NSIS 已可建置；尚需 Windows 10/11 實機驗證、自動化 Windows runner 與正式簽章
 - Phase 5：簽章 / notarization / 自動更新
 - 已知小項：UI 測試有少量無害的 React `act()` warning（不影響結果）；Claude 官方額度優先經 `get_usage` control request 即時取得，`~/.claude.json` 快取僅作為離線／失敗時的備援。連續刷新失敗超過 15 分鐘才會隱藏百分比顯示「等待官方更新」
 

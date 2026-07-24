@@ -100,6 +100,7 @@ function StripProviderRow({
   limitId: string;
   windowHours?: number;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const stripRightInfo = useAppStore((state) => settingStripRightInfo(state.settings[SETTINGS_KEYS.stripRightInfo]));
   const now = useNow();
   const awaitingRefresh = snapshotCycleState(latest, new Date(now).toISOString()) === "awaiting_provider_refresh";
@@ -167,7 +168,21 @@ function StripProviderRow({
   const costLabel = meta?.apiEquivalentUsd === undefined
     ? "成本資料不足"
     : `${meta.unpricedModels?.length ? "≥ " : ""}US$${meta.apiEquivalentUsd.toFixed(2)}`;
-  return <div className={`strip-provider provider-${provider} ${meta || claude ? "has-cost" : ""} ${expiry.expiring || resetCredits.expiringSoon ? "expiring" : ""}`} aria-label={tooltip}>
+  const hasDetails = Boolean(meta || claude);
+  const toggleDetails = () => hasDetails && setDetailsOpen((open) => !open);
+  return <div
+    className={`strip-provider provider-${provider} ${hasDetails ? "has-cost" : ""} ${detailsOpen ? "details-open" : ""} ${expiry.expiring || resetCredits.expiringSoon ? "expiring" : ""}`}
+    aria-label={tooltip}
+    aria-expanded={hasDetails ? detailsOpen : undefined}
+    role={hasDetails ? "button" : undefined}
+    tabIndex={hasDetails ? 0 : undefined}
+    onClick={toggleDetails}
+    onKeyDown={(event) => {
+      if (!hasDetails || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      toggleDetails();
+    }}
+  >
     <div className="strip-label">
       <strong>{expiry.expiring ? "⚠ " : ""}{visibleLabel}</strong>
       {latest ? quotaStale || awaitingRefresh ? <span className="strip-status awaiting"><small>{visibleTiming}</small></span> : <span className="strip-status"><b className="strip-percent">{Math.round(used)}</b><small>· {visibleTiming}</small></span> : <span>等待資料</span>}
@@ -354,15 +369,31 @@ function WindowControlIcon({ type, filled = false }: { type: WindowControlIconTy
   </svg>;
 }
 
-const NAV: Array<{ id: PageId; icon: string; label: string }> = [
-  { id: "dashboard", icon: "▦", label: "總覽" },
-  { id: "history", icon: "↗", label: "用量趨勢" },
-  { id: "usageStats", icon: "$", label: "成本統計" },
-  { id: "activity", icon: "▷", label: "活動紀錄" },
-  { id: "plans", icon: "◈", label: "方案與額度" },
-  { id: "dataSources", icon: "◎", label: "資料來源" },
-  { id: "notifications", icon: "♧", label: "通知設定" },
-  { id: "settings", icon: "⚙", label: "設定" },
+type NavIconType = "dashboard" | "trend" | "cost" | "activity" | "plans" | "source" | "notifications" | "settings" | "menu";
+
+function NavIcon({ type }: { type: NavIconType }) {
+  return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {type === "dashboard" && <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>}
+    {type === "trend" && <><path d="M4 19V5M4 19h16" /><path d="m7 15 4-4 3 2 5-6" /></>}
+    {type === "cost" && <><circle cx="12" cy="12" r="9" /><path d="M15.5 8.5c-.7-.7-1.8-1-3-1-1.7 0-3 .8-3 2s1.1 1.8 3 2.2 3 1 3 2.3-1.3 2.2-3 2.2c-1.3 0-2.5-.4-3.3-1.2M12 5.5v13" /></>}
+    {type === "activity" && <><circle cx="12" cy="12" r="9" /><path d="m10 8 6 4-6 4Z" /></>}
+    {type === "plans" && <><path d="m12 3 8 5-8 5-8-5 8-5Z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></>}
+    {type === "source" && <><ellipse cx="12" cy="5" rx="7" ry="3" /><path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7" /></>}
+    {type === "notifications" && <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>}
+    {type === "settings" && <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></>}
+    {type === "menu" && <><path d="M4 6h16M4 12h16M4 18h16" /></>}
+  </svg>;
+}
+
+const NAV: Array<{ id: PageId; icon: NavIconType; label: string }> = [
+  { id: "dashboard", icon: "dashboard", label: "總覽" },
+  { id: "history", icon: "trend", label: "用量趨勢" },
+  { id: "usageStats", icon: "cost", label: "成本統計" },
+  { id: "activity", icon: "activity", label: "活動紀錄" },
+  { id: "plans", icon: "plans", label: "方案與額度" },
+  { id: "dataSources", icon: "source", label: "資料來源" },
+  { id: "notifications", icon: "notifications", label: "通知設定" },
+  { id: "settings", icon: "settings", label: "設定" },
 ];
 
 /** One-time app bootstrap: initial load, scheduler start, tray events, background mode. */
@@ -589,7 +620,7 @@ export function App() {
       <section className="widget-summary" aria-label="AI 用量小工具">
         <div className="widget-title">
           <div><strong>AI Usage</strong><small>LOCAL MONITOR</small></div>
-          <button type="button" onClick={() => store.navigate("dashboard")} title="總覽">☰</button>
+          <button type="button" onClick={() => store.navigate("dashboard")} title="開啟總覽" aria-label="開啟總覽"><NavIcon type="menu" /></button>
         </div>
         <div className="widget-provider-list">
           {widgetLimits.length ? widgetLimits.map(({ limit, plan, latest }) => {
@@ -672,7 +703,7 @@ export function App() {
               aria-current={store.page === item.id ? "page" : undefined}
               onClick={() => store.navigate(item.id)}
             >
-              <span aria-hidden>{item.icon}</span>
+              <span aria-hidden><NavIcon type={item.icon} /></span>
               {item.label}
             </button>
           ))}
@@ -684,7 +715,7 @@ export function App() {
             aria-current={store.page === "settings" ? "page" : undefined}
             onClick={() => store.navigate("settings")}
           >
-            <span aria-hidden>⚙</span>設定
+            <span aria-hidden><NavIcon type="settings" /></span>設定
           </button>
           <div className="privacy">
             <i aria-hidden />

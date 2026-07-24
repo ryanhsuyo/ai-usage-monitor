@@ -9,6 +9,7 @@ import { getAppServices } from "./appServices";
 import { useAppStore } from "./state/store";
 import { SETTINGS_KEYS } from "@/services/settingsKeys";
 import { newId, nowIso } from "@/services/ids";
+import { Modal } from "./components/atoms";
 
 async function resetAll() {
   const services = await getAppServices();
@@ -86,6 +87,41 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe("Onboarding", () => {
+  it("auto-detects supported local sources without asking for account or subscription price", async () => {
+    const services = await getAppServices();
+    await services.settingsRepo.set(SETTINGS_KEYS.onboardingCompleted, "false");
+
+    render(<App />);
+
+    expect(await screen.findByText("自動尋找用量來源")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI / Codex")).toBeInTheDocument();
+    expect(screen.getByText("ChatGPT 網頁聊天")).toBeInTheDocument();
+    expect(screen.getByText("目前不支援")).toBeInTheDocument();
+    expect(screen.queryByLabelText("帳號顯示名稱")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("月費")).not.toBeInTheDocument();
+  });
+});
+
+describe("Shared accessibility", () => {
+  it("moves focus into a modal and traps keyboard focus inside it", async () => {
+    const user = userEvent.setup();
+    render(
+      <Modal title="鍵盤測試" onClose={() => undefined}>
+        <button type="button">主要操作</button>
+      </Modal>
+    );
+
+    const close = await screen.findByRole("button", { name: "關閉" });
+    const action = screen.getByRole("button", { name: "主要操作" });
+    await waitFor(() => expect(close).toHaveFocus());
+    await user.tab({ shift: true });
+    expect(action).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+  });
 });
 
 describe("Dashboard", () => {

@@ -47,8 +47,36 @@ pub struct LocalUsageReading {
 }
 
 fn codex_binary() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            for relative in [
+                "Programs/ChatGPT/resources/codex.exe",
+                "Programs/OpenAI/ChatGPT/resources/codex.exe",
+            ] {
+                let candidate = PathBuf::from(&local_app_data).join(relative);
+                if candidate.exists() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+        }
+        return "codex.exe".to_string();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
     let bundled = "/Applications/ChatGPT.app/Contents/Resources/codex";
     if Path::new(bundled).exists() { bundled.to_string() } else { "codex".to_string() }
+    }
+}
+
+/// GUI processes on Windows are not guaranteed to have `HOME`; the native profile variable is
+/// `USERPROFILE`. Keep the path decision in the platform adapter instead of leaking it into the
+/// TypeScript domain layer.
+fn user_home_dir() -> Result<PathBuf, String> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .ok_or_else(|| "找不到使用者目錄".to_string())
 }
 
 fn read_codex_response(reader: &mut BufReader<impl std::io::Read>, request_id: i64) -> Result<Value, String> {
@@ -140,23 +168,31 @@ static CLAUDE_USAGE_FETCH: OnceLock<Mutex<ClaudeUsageFetchState>> = OnceLock::ne
 
 /// Locate the Claude Code binary. A GUI app's PATH only carries system directories, so probe the
 /// common install locations (native installer, Homebrew, npm global) before falling back to PATH.
-fn claude_binary(home: &str) -> PathBuf {
-    let candidates = [
-        Path::new(home).join(".local/bin/claude"),
+fn claude_binary(home: &Path) -> PathBuf {
+    let mut candidates = vec![home.join(".local/bin/claude")];
+    #[cfg(target_os = "windows")]
+    {
+        candidates.extend([
+            home.join(".local/bin/claude.exe"),
+            home.join("AppData/Roaming/npm/claude.cmd"),
+        ]);
+    }
+    #[cfg(not(target_os = "windows"))]
+    candidates.extend([
         PathBuf::from("/opt/homebrew/bin/claude"),
         PathBuf::from("/usr/local/bin/claude"),
-        Path::new(home).join(".npm-global/bin/claude"),
-    ];
+        home.join(".npm-global/bin/claude"),
+    ]);
     for candidate in candidates {
         if candidate.exists() { return candidate; }
     }
-    PathBuf::from("claude")
+    PathBuf::from(if cfg!(target_os = "windows") { "claude.exe" } else { "claude" })
 }
 
 /// Ask Claude Code for live official usage through the stream-json control protocol
 /// (`get_usage`), which calls the provider's usage endpoint directly. This consumes no quota
 /// and needs no terminal emulation; only the returned limits are read, never credentials.
-fn fetch_claude_usage_via_cli(home: &str, cwd: &Path) -> ClaudeUsageFetch {
+fn fetch_claude_usage_via_cli(home: &Path, cwd: &Path) -> ClaudeUsageFetch {
     let binary = claude_binary(home);
     let Ok(mut child) = Command::new(binary)
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
@@ -240,7 +276,7 @@ fn all_full_waiting_for_reset(limits: &[Value], now: i64) -> bool {
 }
 
 fn refreshed_claude_limits(
-    home: &str,
+    home: &Path,
     root: &Value,
     cached_fetched_ms: i64,
     cached_limits: Option<&Vec<Value>>,
@@ -280,7 +316,7 @@ fn refreshed_claude_limits(
                 (settings.get("hasTrustDialogAccepted").and_then(Value::as_bool) == Some(true)
                     && Path::new(path).is_dir()).then(|| PathBuf::from(path))
             })
-        }).unwrap_or_else(|| PathBuf::from(home));
+        }).unwrap_or_else(|| home.to_path_buf());
         state.last_attempt = Some(Instant::now());
         match fetch_claude_usage_via_cli(home, &cwd) {
             ClaudeUsageFetch::Limits(fresh_limits) => {
@@ -333,9 +369,9 @@ pub async fn read_codex_local_usage() -> Result<Vec<LocalUsageReading>, String> 
 }
 
 fn read_codex_local_usage_inner() -> Result<Vec<LocalUsageReading>, String> {
-    let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
+    let home = user_home_dir()?;
     let mut files = Vec::new();
-    jsonl_files(&Path::new(&home).join(".codex/sessions"), &mut files);
+    jsonl_files(&home.join(".codex/sessions"), &mut files);
     files.sort_by(|a, b| b.0.cmp(&a.0));
 
     let app_server_result = read_codex_app_server();
@@ -406,9 +442,9 @@ fn read_codex_local_usage_inner() -> Result<Vec<LocalUsageReading>, String> {
     }).collect()
 }
 
-fn claude_recent_usage(home: &str, since_unix: i64) -> (Vec<ModelUsage>, usize, Option<String>) {
+fn claude_recent_usage(home: &Path, since_unix: i64) -> (Vec<ModelUsage>, usize, Option<String>) {
     let mut files = Vec::new();
-    jsonl_files(&Path::new(home).join(".claude/projects"), &mut files);
+    jsonl_files(&home.join(".claude/projects"), &mut files);
     let mut seen_messages = HashSet::new();
     let mut sessions = HashSet::new();
     let mut by_model: HashMap<String, ModelUsage> = HashMap::new();
@@ -476,9 +512,9 @@ pub async fn read_claude_usage_daily(utc_offset_minutes: i32) -> Result<Vec<Dail
 }
 
 fn read_claude_usage_daily_inner(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
-    let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
+    let home = user_home_dir()?;
     let mut files = Vec::new();
-    jsonl_files(&Path::new(&home).join(".claude/projects"), &mut files);
+    jsonl_files(&home.join(".claude/projects"), &mut files);
     if files.is_empty() {
         return Err("找不到 Claude Code 本機對話紀錄（~/.claude/projects）".into());
     }
@@ -497,10 +533,10 @@ pub async fn read_codex_usage_daily(utc_offset_minutes: i32) -> Result<Vec<Daily
 }
 
 fn read_codex_usage_daily_inner(utc_offset_minutes: i32) -> Result<Vec<DailyModelUsage>, String> {
-    let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
+    let home = user_home_dir()?;
     let mut files = Vec::new();
-    jsonl_files(&Path::new(&home).join(".codex/sessions"), &mut files);
-    jsonl_files(&Path::new(&home).join(".codex/archived_sessions"), &mut files);
+    jsonl_files(&home.join(".codex/sessions"), &mut files);
+    jsonl_files(&home.join(".codex/archived_sessions"), &mut files);
     if files.is_empty() {
         return Err("找不到 Codex 本機對話紀錄（~/.codex/sessions）".into());
     }
@@ -657,8 +693,8 @@ pub async fn read_claude_local_usage() -> Result<Vec<LocalUsageReading>, String>
 }
 
 fn read_claude_local_usage_inner() -> Result<Vec<LocalUsageReading>, String> {
-    let home = std::env::var("HOME").map_err(|_| "找不到使用者目錄".to_string())?;
-    let body = fs::read_to_string(Path::new(&home).join(".claude.json"))
+    let home = user_home_dir()?;
+    let body = fs::read_to_string(home.join(".claude.json"))
         .map_err(|_| "找不到 Claude Code 本機設定".to_string())?;
     let root: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let cached_fetched_ms = root.pointer("/cachedUsageUtilization/fetchedAtMs").and_then(Value::as_i64).unwrap_or(0);
@@ -932,7 +968,9 @@ mod tests {
     #[ignore = "live check: needs a logged-in local Claude Code install and network access"]
     fn fetch_claude_usage_live() {
         let home = std::env::var("HOME").expect("HOME");
-        let ClaudeUsageFetch::Limits(limits) = fetch_claude_usage_via_cli(&home, Path::new(&home)) else {
+        let ClaudeUsageFetch::Limits(limits) =
+            fetch_claude_usage_via_cli(Path::new(&home), Path::new(&home))
+        else {
             panic!("expected live usage limits — is Claude Code logged in?");
         };
         assert!(limits.iter().any(|limit| {

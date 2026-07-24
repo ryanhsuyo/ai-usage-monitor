@@ -118,7 +118,10 @@ export function createTauriUsageCacheWatcher(): UsageCacheWatcher {
       const home = await homeDir();
       const target = await join(home, ".claude.json");
       return watch(home, (event) => {
-        if (event.paths.some((path) => path === target || path.endsWith("/.claude.json"))) onChange();
+        if (event.paths.some((path) => {
+          const normalized = path.replaceAll("\\", "/");
+          return path === target || normalized.endsWith("/.claude.json");
+        })) onChange();
       }, { recursive: false, delayMs: 300 });
     },
     async watchLocalUsageActivity(onChange) {

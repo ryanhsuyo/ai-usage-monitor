@@ -1,6 +1,6 @@
 // Shared UI atoms built on the project stylesheet (global.css).
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { levelFor } from "@/domain/confidence";
 import { create } from "zustand";
 
@@ -90,22 +90,55 @@ export function Modal(props: {
   children: ReactNode;
   wide?: boolean;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusable = dialog?.querySelector<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    );
+    (focusable ?? dialog)?.focus();
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") props.onClose();
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const items = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+      ));
+      if (!items.length) {
+        e.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      returnFocusRef.current?.focus();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
       <div
+        ref={dialogRef}
         className="modal"
         role="dialog"
         aria-modal="true"
         aria-label={props.title}
+        tabIndex={-1}
         style={props.wide ? { width: "min(640px, calc(100vw - 40px))" } : undefined}
       >
         <div className="modal-title">

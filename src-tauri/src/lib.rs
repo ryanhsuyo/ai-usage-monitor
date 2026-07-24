@@ -14,6 +14,12 @@ mod local_usage;
 mod diagnostics;
 
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    OnceLock,
+};
+#[cfg(target_os = "macos")]
 use std::{fs, path::PathBuf};
 
 use tauri::{
@@ -89,9 +95,9 @@ struct StripMetrics {
 
 fn strip_metrics(size: Option<&str>) -> StripMetrics {
     match size {
-        Some("small") => StripMetrics { width: 240.0, min_width: 210.0, chrome: 34.0, gap: 4.0, row: 18.0, tickets: 24.0 },
+        Some("small") => StripMetrics { width: 240.0, min_width: 210.0, chrome: 34.0, gap: 4.0, row: 20.0, tickets: 27.0 },
         Some("large") => StripMetrics { width: 330.0, min_width: 290.0, chrome: 41.0, gap: 6.0, row: 25.0, tickets: 31.0 },
-        _ => StripMetrics { width: 280.0, min_width: 250.0, chrome: 38.0, gap: 5.0, row: 20.0, tickets: 28.0 },
+        _ => StripMetrics { width: 280.0, min_width: 250.0, chrome: 38.0, gap: 5.0, row: 22.0, tickets: 31.0 },
     }
 }
 
@@ -169,6 +175,9 @@ fn set_window_mode(
     window.set_decorations(!widget).map_err(|e| e.to_string())?;
     window.set_resizable(!widget).map_err(|e| e.to_string())?;
     window.set_skip_taskbar(widget).map_err(|e| e.to_string())?;
+    // Tauri exposes this API cross-platform, but "all Spaces" is a macOS-only concept.
+    // Treating Windows' unsupported result as fatal would leave the mode half-switched.
+    #[cfg(target_os = "macos")]
     window.set_visible_on_all_workspaces(widget).map_err(|e| e.to_string())?;
     window.set_always_on_top(pinned).map_err(|e| e.to_string())?;
     window
@@ -219,6 +228,78 @@ struct HideOnClose(Mutex<bool>);
 struct WidgetModeState(Mutex<bool>);
 struct PinnedState(Mutex<bool>);
 
+#[cfg(target_os = "macos")]
+static ALLOW_EXPLICIT_QUIT: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+static NATIVE_QUIT_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+#[cfg(target_os = "macos")]
+fn install_macos_quit_guard(app_handle: tauri::AppHandle) {
+    use objc2::{
+        class, msg_send,
+        runtime::{AnyClass, AnyObject, ClassBuilder, Sel},
+        sel,
+    };
+    extern "C-unwind" fn application_should_terminate(
+        _delegate: *mut AnyObject,
+        _cmd: Sel,
+        application: *mut AnyObject,
+    ) -> isize {
+        if ALLOW_EXPLICIT_QUIT.swap(false, Ordering::SeqCst) {
+            return 1; // NSTerminateNow
+        }
+        let sender: Option<&AnyObject> = None;
+        unsafe {
+            let _: () = msg_send![application, hide: sender];
+        }
+        if let Some(app_handle) = NATIVE_QUIT_APP_HANDLE.get() {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.hide();
+            }
+            let _ = diagnostics::append(
+                app_handle,
+                "info",
+                "quit_intercepted_background_continues",
+                Some("macos_native_quit"),
+            );
+        }
+        0 // NSTerminateCancel
+    }
+
+    let _ = NATIVE_QUIT_APP_HANDLE.set(app_handle);
+    unsafe {
+        let application: &AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let delegate: Option<&AnyObject> = msg_send![application, delegate];
+        let Some(delegate) = delegate else { return };
+        let subclass = if let Some(existing) = AnyClass::get(c"AIUsageMonitorAppDelegate") {
+            existing
+        } else {
+            let Some(mut builder) =
+                ClassBuilder::new(c"AIUsageMonitorAppDelegate", delegate.class())
+            else {
+                return;
+            };
+            builder.add_method(
+                sel!(applicationShouldTerminate:),
+                application_should_terminate
+                    as extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> isize,
+            );
+            builder.register()
+        };
+        AnyObject::set_class(delegate, subclass);
+    }
+}
+
+fn should_keep_running_on_exit_request(
+    code: Option<i32>,
+    background_enabled: bool,
+    supports_user_quit_interception: bool,
+) -> bool {
+    // macOS user-driven Quit (⌘Q / Dock Quit) arrives without an exit code. Programmatic exits
+    // from our explicit Settings/tray actions carry Some(0) and must remain authoritative.
+    supports_user_quit_interception && code.is_none() && background_enabled
+}
+
 /// v0.2 changed the bundle identifier to remove the misleading `.app` suffix.
 /// Copy the legacy app-data files once before the frontend opens SQLite.
 #[cfg(target_os = "macos")]
@@ -247,6 +328,8 @@ fn set_hide_on_close(state: tauri::State<HideOnClose>, value: bool) {
 /// Fully exit the app (used by the tray "Quit" item and the Settings "Quit" action).
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    ALLOW_EXPLICIT_QUIT.store(true, Ordering::SeqCst);
     app.exit(0);
 }
 
@@ -296,7 +379,7 @@ fn migrations() -> Vec<Migration> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -336,6 +419,8 @@ pub fn run() {
         ])
         .setup(|app| {
             migrate_legacy_app_data(&app.handle());
+            #[cfg(target_os = "macos")]
+            install_macos_quit_guard(app.handle().clone());
             // --- Menu bar / system tray ---
             let open_i = MenuItem::with_id(app, "open", "Open Dashboard", true, None::<&str>)?;
             let check_i = MenuItem::with_id(app, "check_now", "Check Now", true, None::<&str>)?;
@@ -353,7 +438,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(tray_icon)
-                .icon_as_template(true)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("AI Usage Monitor")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -366,7 +451,11 @@ pub fn run() {
                             let _ = win.set_focus();
                         }
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        #[cfg(target_os = "macos")]
+                        ALLOW_EXPLICIT_QUIT.store(true, Ordering::SeqCst);
+                        app.exit(0);
+                    }
                     // All monitoring/notification logic lives in the webview; forward as events.
                     other => {
                         let _ = app.emit("tray://action", other.to_string());
@@ -411,25 +500,72 @@ pub fn run() {
             // disappear before its controls received the click. Tray click and Close remain
             // the explicit ways to hide it; pinning controls only the always-on-top behavior.
         })
-        .run(tauri::generate_context!())
-        .expect("error while running AI Usage Monitor");
+        .build(tauri::generate_context!())
+        .expect("error while building AI Usage Monitor");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+            let background_enabled = app_handle
+                .state::<HideOnClose>()
+                .0
+                .lock()
+                .map(|guard| *guard)
+                .unwrap_or(true);
+            if should_keep_running_on_exit_request(
+                code,
+                background_enabled,
+                cfg!(target_os = "macos"),
+            ) {
+                api.prevent_exit();
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+                let _ = diagnostics::append(
+                    app_handle,
+                    "info",
+                    "quit_intercepted_background_continues",
+                    Some("macos_user_quit"),
+                );
+            } else {
+                let detail = if code.is_some() {
+                    "explicit_app_quit"
+                } else {
+                    "background_disabled"
+                };
+                let _ = diagnostics::append(
+                    app_handle,
+                    "info",
+                    "app_exit_requested",
+                    Some(detail),
+                );
+            }
+        }
+    });
 }
 
 #[cfg(test)]
 mod strip_layout_tests {
-    use super::strip_height;
+    use super::{should_keep_running_on_exit_request, strip_height};
+
+    #[test]
+    fn background_mode_intercepts_only_user_driven_quit() {
+        assert!(should_keep_running_on_exit_request(None, true, true));
+        assert!(!should_keep_running_on_exit_request(Some(0), true, true));
+        assert!(!should_keep_running_on_exit_request(None, false, true));
+        assert!(!should_keep_running_on_exit_request(None, true, false));
+    }
 
     /// The numbers on the right are the rendered content heights measured in the browser at each
     /// preset. The window must be at least that tall, or `.strip-summary` crops rows silently.
     #[test]
     fn height_covers_the_rendered_content() {
         // 4 limits + the Codex reset-credit block — the layout that overflowed the old fixed 150.
-        assert_eq!(strip_height(None, Some(4), true), 38.0 + 80.0 + 15.0 + 5.0 + 28.0 + 4.0);
+        assert_eq!(strip_height(None, Some(4), true), 38.0 + 88.0 + 15.0 + 5.0 + 31.0 + 4.0);
         assert!(strip_height(None, Some(4), true) > 150.0, "the old fixed height cropped this");
         // Without credits the block costs nothing, including its gap.
-        assert_eq!(strip_height(None, Some(4), false), 38.0 + 80.0 + 15.0 + 4.0);
+        assert_eq!(strip_height(None, Some(4), false), 38.0 + 88.0 + 15.0 + 4.0);
         // A single row has no inter-row gap to pay for.
-        assert_eq!(strip_height(None, Some(1), false), 38.0 + 20.0 + 4.0);
+        assert_eq!(strip_height(None, Some(1), false), 38.0 + 22.0 + 4.0);
     }
 
     #[test]

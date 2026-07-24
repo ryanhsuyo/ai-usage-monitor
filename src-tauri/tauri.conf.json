@@ -40,7 +40,24 @@
     ],
     "category": "Productivity",
     "shortDescription": "Local-first AI usage monitor",
-    "longDescription": "Monitor AI subscription usage, forecast exhaustion, predict resets, and get notified across desktop, Discord, Slack, Telegram and custom webhooks. All data stays on your machine."
+    "longDescription": "Monitor AI subscription usage, forecast exhaustion, predict resets, and get notified across desktop, Discord, Slack, Telegram and custom webhooks. All data stays on your machine.",
+    "macOS": {
+      "dmg": {
+        "background": "./images/dmg-background.png",
+        "windowSize": {
+          "width": 760,
+          "height": 500
+        },
+        "appPosition": {
+          "x": 190,
+          "y": 190
+        },
+        "applicationFolderPosition": {
+          "x": 570,
+          "y": 190
+        }
+      }
+    }
   },
   "plugins": {}
 }

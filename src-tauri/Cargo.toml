@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
+tauri = { version = "2", features = [ "tray-icon", "image-png"] }
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
@@ -32,6 +32,10 @@ time = { version = "0.3", features = ["parsing"] }
 # apple-native + windows-native cover the two platforms in scope (macOS Keychain, Windows Credential
 # Manager). Linux secret-service is intentionally omitted to avoid pulling dbus/zbus into the macOS build.
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
