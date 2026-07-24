@@ -26,9 +26,14 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = { version = "2", features = ["watch"] }
 tauri-plugin-http = "2"
 tauri-plugin-opener = "2"
+# A second copy of the app shares this one's SQLite database — two schedulers writing snapshots and
+# dispatching notifications against the same rows. macOS already refuses to launch the same bundle
+# twice, but a dev build and an installed build are different bundles with the same identifier, so
+# they happily ran side by side.
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-time = { version = "0.3", features = ["parsing"] }
+time = { version = "0.3", features = ["parsing", "formatting"] }
 # apple-native + windows-native cover the two platforms in scope (macOS Keychain, Windows Credential
 # Manager). Linux secret-service is intentionally omitted to avoid pulling dbus/zbus into the macOS build.
 keyring = { version = "3", features = ["apple-native", "windows-native"] }

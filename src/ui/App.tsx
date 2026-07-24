@@ -396,6 +396,10 @@ const NAV: Array<{ id: PageId; icon: NavIconType; label: string }> = [
   { id: "settings", icon: "settings", label: "設定" },
 ];
 
+/** Rate limit for the provider fetch the tray triggers when it opens the widget. */
+const TRAY_REFRESH_MIN_INTERVAL_MS = 90_000;
+let lastTrayFetch = 0;
+
 /** One-time app bootstrap: initial load, scheduler start, tray events, background mode. */
 function useBootstrap() {
   const refresh = useAppStore((s) => s.refresh);
@@ -494,8 +498,15 @@ function useBootstrap() {
               await refresh();
               toast.success("已完成一次立即檢查");
             } else if (action === "refresh_now") {
-              await services.monitor.runOnce("manual").catch(() => undefined);
-              await refresh();
+              // Sent every time the tray pops the widget open. A monitor run spawns the provider
+              // CLIs and ends in a full store reload, so doing it on every click made the widget
+              // stutter as it appeared. The scheduler and the file watchers already keep the
+              // numbers current; only reach for the provider again if they have not run recently.
+              if (Date.now() - lastTrayFetch > TRAY_REFRESH_MIN_INTERVAL_MS) {
+                lastTrayFetch = Date.now();
+                await services.monitor.runOnce("manual").catch(() => undefined);
+                await refresh();
+              }
             } else if (action === "pause") {
               await services.settingsRepo.set(SETTINGS_KEYS.monitoringPaused, "true");
               await refresh();

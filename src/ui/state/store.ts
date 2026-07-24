@@ -90,10 +90,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         services.dataSourceRepo.list(),
       ]);
 
-    const snapshotsByLimit: Record<string, UsageSnapshot[]> = {};
-    for (const limit of limits) {
-      snapshotsByLimit[limit.id] = await services.snapshotRepo.listByLimit(limit.id);
-    }
+    // One query per limit, run together. Sequentially this paid a full round trip per limit on
+    // every refresh — and refresh runs after each monitor tick, tray popup and file-watch event,
+    // so the delay landed exactly when the UI was being asked to repaint.
+    const snapshotsByLimit: Record<string, UsageSnapshot[]> = Object.fromEntries(
+      await Promise.all(
+        limits.map(async (limit) => [limit.id, await services.snapshotRepo.listByLimit(limit.id)] as const)
+      )
+    );
 
     const selected = get().selectedLimitId;
     const firstActive = limits.find((l) => l.active && l.monitoringEnabled) ?? limits[0];

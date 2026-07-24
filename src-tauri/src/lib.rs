@@ -25,7 +25,7 @@ use std::{fs, path::PathBuf};
 use tauri::{
     LogicalSize, PhysicalPosition, Position, Size,
     menu::{Menu, MenuItem},
-    tray::{TrayIconBuilder, TrayIconEvent},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     window::Color,
     Emitter, Manager, WindowEvent,
 };
@@ -380,6 +380,17 @@ fn migrations() -> Vec<Migration> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        // Must be registered first: it aborts the second process before anything else initialises,
+        // which is the point — two instances would otherwise open the same SQLite file and run two
+        // schedulers against it. The surviving instance surfaces its window so the launch still
+        // does what the user asked for.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -462,17 +473,33 @@ pub fn run() {
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { .. } = event {
+                    // Match the release of a left click only. `Click { .. }` also matches the
+                    // press, so one physical click ran this twice: the press showed the window and
+                    // the release — finding it visible and focused — hid it again, so the tool
+                    // flashed and vanished. It looked intermittent because whether macOS had
+                    // finished focusing by the second event was a race.
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(win) = app.get_webview_window("main") {
                             let visible_and_focused = win.is_visible().unwrap_or(false) && win.is_focused().unwrap_or(false);
                             if visible_and_focused {
                                 let _ = win.hide();
                             } else {
-                                let _ = app.emit("tray://action", "refresh_now".to_string());
-                                let _ = win.emit("ui://request-widget-mode", true);
+                                // Put the window on screen before telling the webview to do
+                                // anything. Emitting first meant React started re-rendering (and
+                                // a manual monitor run started) while the window was still
+                                // appearing, so it surfaced blank and only filled in afterwards.
                                 let _ = win.show();
+                                // A window minimised to the Dock stays minimised after show().
+                                let _ = win.unminimize();
                                 let _ = win.set_focus();
+                                let _ = win.emit("ui://request-widget-mode", true);
+                                let _ = app.emit("tray://action", "refresh_now".to_string());
                             }
                         }
                     }
