@@ -1,5 +1,14 @@
 # Handoff Log
 
+## 2026-07-23 — 別人「點不開」「打開會不見」：universal 簽章失效 + 未處理 Reopen
+
+- 使用者轉述他人試用回饋：**點不開**、**打開或打開會一直不見**。兩個獨立成因。
+- **點不開 = universal 建置沒有有效簽章**。`codesign -dv` 顯示 `Signature=adhoc` 具誤導性；`codesign --verify --deep --strict` 實為 **"code object is not signed at all"**，`spctl` 判 `rejected / no usable signature`。成因是 `tauri build --target universal-apple-darwin` 以 `lipo` 合併雙架構，該動作使簽章失效。**Apple Silicon 上沒有有效簽章的 arm64 執行檔會被系統拒絕執行**——不是 Gatekeeper 提示，是根本無法啟動。對照組：`aarch64-apple-darwin` 單架構建置為真正的 adhoc、可執行。
+- 修正：新增 `scripts/package-universal.sh`（`pnpm package:universal`），在 build 後 `codesign --force --deep --sign -` 重簽並驗證，再從已簽章的 .app 重新產生 dmg（原 dmg 包的是重簽前的 bundle）。重簽後 `--verify --deep --strict` 為 *valid on disk / satisfies its Designated Requirement*，架構仍為 `x86_64 arm64`。`spctl` 仍 rejected 屬 ad-hoc 未公證的預期結果，首次開啟仍需手動允許。
+- **打開會一直不見 = 未處理 `RunEvent::Reopen`**。關閉視窗走 `prevent_close()` + `hide()` 保留背景執行，故 macOS 將再次點擊 App 視為 reopen 而非重新啟動；先前只處理 `ExitRequested`，reopen 完全沒有 handler，點了毫無反應。修正：`RunEvent::Reopen` 且 `!has_visible_windows` 時 `show() + unminimize() + set_focus()`。
+- README 補上「第一次開啟必須手動允許」（macOS 15 後右鍵→打開已移除，改走系統設定）與「關掉視窗後 App 仍在選單列」兩節。
+- 19 Rust 測試綠。
+
 ## 2026-07-23 — 成本統計切頁卡住（彩虹球）：重量級指令改為非同步
 
 - 使用者回報切到「成本統計」會轉圈／卡住很久，且這類停頓「蠻常發生」。彩虹球＝webview 主執行緒被卡。
@@ -728,3 +737,29 @@
 - 側欄與小工具選單統一為同一組 outline SVG，不再混用 Unicode 結構 icon。
 - Switch 與視窗控制擴大可點範圍；Modal 開啟時移入焦點、Tab/Shift+Tab 留在對話框、關閉後回到原控制，並新增 UI 測試。
 - 加入 `prefers-reduced-motion`，以及 780px 以下縮成 icon rail 的桌面響應式布局，改善 Windows 高 DPI 與分割視窗。
+
+# 2026-07-24 — Skills Monitor
+
+- 側欄新增 Skills 頁，掃描 Codex／Claude 個人與 plugin cache 的 `SKILL.md`，顯示能力描述、來源、版本、路徑及零使用項目。
+- Claude 從 transcript 的 `Skill` tool use 統計確定調用；Codex 僅把使用者明確 `$skill` 視為確定調用，把可辨識的 `SKILL.md` 讀取另列為推定，並排除 developer metadata。
+- 提供全部／近 30 天、平台與文字篩選、最後使用時間；重新掃描直接讀本機檔案，不新增資料庫或遠端追蹤。
+- 驗證：`pnpm typecheck`、`pnpm lint`、221 個前端測試、production bundle、Tauri debug build 通過；3 個 Rust 解析／防誤報測試通過。直接 `cargo test` 仍受既有 Tauri macOS target-specific feature 檢查限制，正式 `pnpm tauri build` 路徑正常。
+
+# 2026-07-24 — Skills Insights 公開版隱私收斂
+
+- 功能改名 Skills Insights 並預設關閉；首次進入先說明掃描範圍、本機處理方式與不會上傳的資料，只有明確啟用後才呼叫 native scanner。
+- 停用後立即停止掃描並清除頁面記憶中的 snapshot；目前不另建索引或對話副本，原始紀錄仍由 Codex／Claude 管理。
+- Native IPC 不再回傳完整 Skill 路徑；來源顯示為個人安裝、共用目錄或 Plugin，避免公開分享版洩露使用者與專案資訊。
+
+# 2026-07-24 — 最小化控制依視窗模式收斂
+
+- 完整視窗已有 macOS／Windows 原生最小化控制，因此隱藏重複的 App 按鈕，避免和極簡／小工具切換相鄰造成誤觸。
+- 小工具與極簡列是無邊框視窗，仍保留自製最小化；跨平台名稱統一為「縮到 Dock／工作列」。
+- 新增 UI 測試，確認完整視窗不顯示自製最小化，切到小工具後才出現。
+
+# 2026-07-24 — Skills Insights 切頁凍結修正
+
+- 實機盤點發現 Skills 掃描會同步遍歷約 2.1 GB、303 個 Claude／Codex JSONL，且原本以 `read_to_string` 將每個歷史檔整份載入。
+- `read_skill_monitor` 改為 async command，將掃描交給 Tauri blocking worker；WebView 與原生事件迴圈可在掃描期間繼續回應。
+- Claude／Codex transcript 改用 `BufReader` 逐行解析，降低大型歷史紀錄造成的尖峰記憶體與假死風險。
+- Adapter 只保留行程內 snapshot 並合併同時發生的掃描；重新進頁不重掃，使用者按「重新掃描」才強制刷新，停用功能時立即清除。

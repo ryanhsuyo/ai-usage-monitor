@@ -55,18 +55,34 @@ src-tauri/       Rust：migrations、keyring 指令、tray、關窗隱藏、plug
 
 ## 使用者安裝（macOS）
 
-> **尚未提供預先建置的 .dmg。** 目前請依下方「開發」章節自行建置（`pnpm tauri build`）。
+> **尚未提供預先建置的 .dmg。** 目前請依下方「開發」章節自行建置（`pnpm package:universal`）。
 > 打包好的下載版會發佈在 [Releases](../../releases)。
 
-打包版發佈後的安裝流程：
+安裝流程：
 
 ```
-下載 .dmg → 拖進 Applications → 打開 App → 完成初次設定 → 開始使用
+下載 .dmg → 拖進 Applications → 第一次開啟需手動允許（見下）→ 完成初次設定
 ```
 
-屆時不需要 Node.js、Rust、SQLite、Terminal、資料庫設定或任何 Server。
+不需要 Node.js、Rust、SQLite、Terminal、資料庫設定或任何 Server。
 
-> 為未簽章（unsigned）建置：第一次開啟需在「系統設定 → 隱私權與安全性」允許，或對 App 右鍵→打開。正式簽章與 notarization 在 Roadmap Phase 5。
+### 第一次開啟：必須手動允許
+
+這是 **ad-hoc 簽章**的建置，沒有經過 Apple 公證（notarization）。從網路下載的副本會被標記隔離，macOS 預設不讓它執行：
+
+1. 打開「系統設定 → 隱私權與安全性」
+2. 往下捲到安全性區塊，會看到「**已阻擋「AI Usage Monitor」**」
+3. 按「**仍要打開**」，再確認一次
+
+較舊的 macOS 也可以改用：在 Applications 中對 App **按右鍵 → 打開**。macOS 15 之後這個捷徑已被移除，請用上面的系統設定流程。
+
+> 若完全沒有反應也沒有任何提示，通常表示 App 的簽章在打包時失效了。請用 `pnpm package:universal` 建置——它會在 `lipo` 合併雙架構後重新簽章；直接跑 `tauri build --target universal-apple-darwin` 產出的 bundle 在 Apple Silicon 上會因為缺少有效簽章而無法啟動。
+
+### 關掉視窗後找不到 App？
+
+這個 App 設計成關閉視窗後**繼續在背景執行**（選單列會有圖示），這樣才能持續監控用量。要叫回視窗：點選單列圖示，或再點一次 App 圖示。要完全結束請用選單列圖示 → Quit。
+
+> 正式的 Developer ID 簽章與 notarization 在 Roadmap Phase 5。完成後就不需要上面的手動允許步驟。
 
 ## 使用者安裝（Windows 10 / 11）
 

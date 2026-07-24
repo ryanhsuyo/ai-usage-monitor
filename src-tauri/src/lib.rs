@@ -504,6 +504,20 @@ pub fn run() {
         .expect("error while building AI Usage Monitor");
 
     app.run(|app_handle, event| {
+        // Clicking the app again after closing its window must bring it back. Closing hides the
+        // window and keeps the process alive, so macOS treats a re-launch (Dock, Launchpad,
+        // Finder) as a reopen rather than a new start — with no handler the click did nothing and
+        // the app looked broken: "it opens and then disappears".
+        if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+            if !has_visible_windows {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+            return;
+        }
         if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
             let background_enabled = app_handle
                 .state::<HideOnClose>()
