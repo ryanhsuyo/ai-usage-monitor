@@ -1,0 +1,104 @@
+name: Release
+
+# Installers have to be built on the OS they target: Tauri links against the platform's webview
+# (WebKit, WebView2, WebKitGTK) and the installer formats are produced by native tooling, so there
+# is no reliable way to cross-compile a Windows or Linux package from a Mac.
+#
+# Push a tag (v0.3.0) to publish a draft release, or run it by hand from the Actions tab to just
+# get the artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            name: macos
+          - platform: ubuntu-22.04
+            name: linux
+          - platform: windows-latest
+            name: windows
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # WebKitGTK and the AppImage/deb tooling; absent from the runner image.
+      - name: Install Linux dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf build-essential curl wget file libxdo-dev libssl-dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+
+      # Uses the repo's own script: `tauri build --target universal-apple-darwin` merges the two
+      # architectures with lipo, which leaves the bundle without a usable signature — on Apple
+      # Silicon the app then cannot launch at all. The script re-signs ad-hoc afterwards.
+      - name: Build (macOS universal)
+        if: matrix.name == 'macos'
+        run: pnpm package:universal
+
+      - name: Build
+        if: matrix.name != 'macos'
+        run: pnpm tauri build
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          find src-tauri/target -type f \
+            \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.rpm" \) \
+            ! -name "rw.*" -exec cp {} artifacts/ \;
+          ls -la artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          # Left as a draft so the notes can be written before anyone can download it. None of
+          # these builds are signed with a paid certificate, which the notes need to say.
+          draft: true
+          body: |
+            未簽章建置（macOS 為 ad-hoc、Windows 未經 code signing），
+            第一次開啟需要手動允許，步驟見 README。

@@ -72,7 +72,7 @@ fn codex_binary() -> String {
 /// GUI processes on Windows are not guaranteed to have `HOME`; the native profile variable is
 /// `USERPROFILE`. Keep the path decision in the platform adapter instead of leaking it into the
 /// TypeScript domain layer.
-fn user_home_dir() -> Result<PathBuf, String> {
+pub(crate) fn user_home_dir() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)

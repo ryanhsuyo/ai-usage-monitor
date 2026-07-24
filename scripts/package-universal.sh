@@ -40,9 +40,12 @@ if [ -f "$DMG" ]; then
 fi
 
 # Drop the finished build somewhere obvious rather than six levels down inside target/.
+# Skipped on CI, which has no Desktop and collects the artifact from the path printed below.
 RELEASE_DIR="$HOME/Desktop/AI-Usage-Monitor-發佈"
-mkdir -p "$RELEASE_DIR"
-cp "$DMG" "$RELEASE_DIR/"
 echo "==> done"
 echo "    $DMG"
-echo "    copied to: $RELEASE_DIR/$(basename "$DMG")"
+if [ -d "$HOME/Desktop" ]; then
+  mkdir -p "$RELEASE_DIR"
+  cp "$DMG" "$RELEASE_DIR/"
+  echo "    copied to: $RELEASE_DIR/$(basename "$DMG")"
+fi

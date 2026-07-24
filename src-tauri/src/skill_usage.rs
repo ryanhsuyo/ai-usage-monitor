@@ -322,9 +322,8 @@ pub async fn read_skill_monitor() -> Result<SkillMonitorSnapshot, String> {
 }
 
 fn build_skill_monitor() -> Result<SkillMonitorSnapshot, String> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or("HOME is not set")?;
+    // Shared with the usage readers: a Windows GUI process has USERPROFILE, not HOME.
+    let home = crate::local_usage::user_home_dir()?;
     let captured = OffsetDateTime::now_utc();
     let cutoff = captured.unix_timestamp() - 30 * 24 * 60 * 60;
     let inventory = collect_inventory(&home);
