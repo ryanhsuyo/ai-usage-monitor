@@ -39,4 +39,10 @@ if [ -f "$DMG" ]; then
   rm -rf "$STAGING"
 fi
 
-echo "==> done: $DMG"
+# Drop the finished build somewhere obvious rather than six levels down inside target/.
+RELEASE_DIR="$HOME/Desktop/AI-Usage-Monitor-發佈"
+mkdir -p "$RELEASE_DIR"
+cp "$DMG" "$RELEASE_DIR/"
+echo "==> done"
+echo "    $DMG"
+echo "    copied to: $RELEASE_DIR/$(basename "$DMG")"
