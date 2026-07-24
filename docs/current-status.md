@@ -2,7 +2,7 @@
 
 > 後續 Agent：先讀這份，再執行 `git status`，然後看 `docs/handoff-log.md`。
 
-**日期**：2026-07-20
+**日期**：2026-07-24
 **版本**：0.3.0（Phase 2 本機額度整合＋成本統計）
 
 ## 狀態總覽
@@ -11,7 +11,7 @@
 |---|---|
 | `pnpm typecheck` | ✅ 0 errors（TS strict） |
 | `pnpm lint` | ✅ 0 errors / 0 warnings |
-| `pnpm test` | ✅ 219/219（23 檔） |
+| `pnpm test` | ✅ 223/223（23 檔） |
 | `pnpm tauri build` | ✅ `.app` + `.dmg`（unsigned） |
 | Windows x64 cross-build | ✅ NSIS `setup.exe`（unsigned；待 Windows 10/11 實機驗收） |
 | Rust `cargo test` | ✅ 16 個測試 + 3 個 `#[ignore]` 實機測試 |
@@ -25,7 +25,8 @@
 - 通知管道 ×5（desktop/discord/slack/telegram/custom webhook）＋ SSRF 檢查＋redaction
 - SecretStore：Keychain（keyring crate）主、AES-GCM 加密檔備、InMemory 測試
 - Services：MonitorService（每小時+啟動+single-flight+暫停）、NotificationDispatcher（去重/重試/靜音/最小間隔/總開關）、DemoData、Export/Import
-- UI 8 頁 + Onboarding（使用者手寫設計語言 + 補 dark mode）；Demo Mode 橫幅；空/載入/錯誤/資料不足/低信心狀態
+- UI 9 頁 + Onboarding（使用者手寫設計語言 + 補 dark mode）；Demo Mode 橫幅；空/載入/錯誤/資料不足/低信心狀態
+- Skills Insights（選用、預設關閉）：取得明確同意後在本機盤點 Codex／Claude Skills 與使用證據；不顯示完整路徑、不上傳對話內容，並將確定調用與 Codex 推定讀取分開呈現
 - Rust：tray menu、hide-on-close 背景執行、tray tooltip 更新、keyring 指令、quit
 - Codex Local：自動解析 `~/.codex/sessions` 官方 rate-limit payload、token 與 API 等值成本
 - Claude Code Local：自動解析 `~/.claude.json` 的官方 `/usage` 快取（Session／Weekly／模型 Weekly）
@@ -85,6 +86,8 @@
 - Windows 10/11 x64 測試版可交叉編譯為 NSIS `setup.exe`：Rust 使用 `USERPROFILE` fallback、Windows Claude/Codex 執行檔候選路徑、反斜線檔案監聽相容、Windows Credential Manager，以及非 macOS 時跳過 Spaces／Quit 攔截；PE x64 與 NSIS 結構已驗證，尚未在 Windows 實機執行
 - 首次設定不再要求使用者手填帳號、方案價格、目前百分比或重置時間；改為直接偵測 Claude Code 與 OpenAI / Codex 本機來源。ChatGPT 網頁聊天明確標示無官方個人額度 API、目前不支援自動同步，避免與 Codex 共用的代理額度混為同一條
 - UI/UX 可用性整理：極簡列成本詳情除 hover 外也可點擊或以 Enter／Space 展開；小工具與極簡列提高文字對比和最小字級，並同步增加原生 strip 視窗高度避免裁切。側欄改用一致 outline SVG icon、Switch／視窗控制擴大點擊區、Modal 加入初始焦點／Tab focus trap／關閉後焦點復原，另支援 reduced-motion 與 780px 以下的高 DPI 緊湊側欄
+- 完整視窗不再重複顯示 App 自製最小化按鈕，改用 macOS／Windows 原生視窗控制；只有沒有原生標題列的小工具與極簡模式顯示「縮到 Dock／工作列」，降低與模式切換按鈕相鄰時的誤觸
+- Skills Insights 掃描移至 Tauri blocking worker，歷史 JSONL 改為逐行串流解析；切入頁面不再因同步讀取數 GB Codex／Claude 紀錄而凍結視窗，也避免把大型檔案整份載入記憶體。頁面重進沿用行程內結果，只有手動重新掃描才重讀，停用即清除
 - 未簽章（ad-hoc）build 不再於每次重建後觸發 macOS Keychain 授權彈窗：Rust 以 `codesign -dv` 偵測自身為 ad-hoc 簽名時，SecretStore 改用既有加密檔備援（DataSources 頁如實顯示「加密檔案」）；Keychain 內既有 secret 於第一次讀取時做一次性遷移（最後允許一次），之後所有重建都不再彈窗。取得正式簽章（Phase 5）後自動回到 Keychain
 - 小工具／極簡模式加入可辨識的六點拖曳把手，按下時直接啟動 OS 原生視窗移動，不依賴透明 macOS WebView 不穩定的 HTML drag region；切換模式時 Rust 同步設定原生 WebView 透明／實色背景，閒置降至 72% 不遮視線，hover／鍵盤操作時恢復完整清晰度
 - 通知頁第 2 步可直接設定「即將用完」的剩餘額度門檻（1–50%）；已啟用該事件的各額度在低於門檻後依週期去重通知一次

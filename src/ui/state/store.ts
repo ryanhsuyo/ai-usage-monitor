@@ -23,6 +23,7 @@ export type PageId =
   | "usageStats"
   | "activity"
   | "plans"
+  | "skills"
   | "dataSources"
   | "notifications"
   | "settings";

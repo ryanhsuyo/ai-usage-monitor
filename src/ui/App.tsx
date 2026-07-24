@@ -20,6 +20,7 @@ import { HistoryPage } from "./pages/History";
 import { UsageStatsPage } from "./pages/UsageStats";
 import { ActivityPage } from "./pages/Activity";
 import { PlansPage } from "./pages/Plans";
+import { SkillsPage } from "./pages/Skills";
 import { DataSourcesPage } from "./pages/DataSources";
 import { NotificationsPage } from "./pages/Notifications";
 import { SettingsPage } from "./pages/Settings";
@@ -344,7 +345,7 @@ function WindowControls() {
   return (
     <><div className="window-drag-handle" data-tauri-drag-region aria-hidden onMouseDown={startDragging} />
     <div className="window-controls" aria-label="視窗控制">
-      <button type="button" onClick={minimizeToDock} title="最小化到 Dock（⌘M）" aria-label="最小化到 Dock"><WindowControlIcon type="minimize" /><span>最小化</span></button>
+      {widgetMode && <button type="button" onClick={minimizeToDock} title="縮到 Dock／工作列" aria-label="縮到 Dock 或工作列"><WindowControlIcon type="minimize" /><span>最小化</span></button>}
       <button type="button" className={stripMode ? "on" : ""} onClick={toggleStrip} title={stripMode ? "展開成小工具卡片" : "縮成極簡橫條"} aria-pressed={stripMode}><WindowControlIcon type={stripMode ? "strip-expand" : "strip-collapse"} /><span>{stripMode ? "展開卡片" : "極簡橫條"}</span></button>
       <button type="button" className={alwaysOnTop ? "on" : ""} onClick={togglePinned} title={alwaysOnTop ? "取消置頂" : "永遠置頂"} aria-pressed={alwaysOnTop}>
         <WindowControlIcon type="pin" filled={alwaysOnTop} /><span>{alwaysOnTop ? "取消置頂" : "置頂"}</span>
@@ -369,7 +370,7 @@ function WindowControlIcon({ type, filled = false }: { type: WindowControlIconTy
   </svg>;
 }
 
-type NavIconType = "dashboard" | "trend" | "cost" | "activity" | "plans" | "source" | "notifications" | "settings" | "menu";
+type NavIconType = "dashboard" | "trend" | "cost" | "activity" | "plans" | "skills" | "source" | "notifications" | "settings" | "menu";
 
 function NavIcon({ type }: { type: NavIconType }) {
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -378,6 +379,7 @@ function NavIcon({ type }: { type: NavIconType }) {
     {type === "cost" && <><circle cx="12" cy="12" r="9" /><path d="M15.5 8.5c-.7-.7-1.8-1-3-1-1.7 0-3 .8-3 2s1.1 1.8 3 2.2 3 1 3 2.3-1.3 2.2-3 2.2c-1.3 0-2.5-.4-3.3-1.2M12 5.5v13" /></>}
     {type === "activity" && <><circle cx="12" cy="12" r="9" /><path d="m10 8 6 4-6 4Z" /></>}
     {type === "plans" && <><path d="m12 3 8 5-8 5-8-5 8-5Z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></>}
+    {type === "skills" && <><path d="M8.5 3.5h7v5h5v7h-5v5h-7v-5h-5v-7h5Z" /><circle cx="12" cy="12" r="2.5" /></>}
     {type === "source" && <><ellipse cx="12" cy="5" rx="7" ry="3" /><path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7" /></>}
     {type === "notifications" && <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>}
     {type === "settings" && <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></>}
@@ -391,6 +393,7 @@ const NAV: Array<{ id: PageId; icon: NavIconType; label: string }> = [
   { id: "usageStats", icon: "cost", label: "成本統計" },
   { id: "activity", icon: "activity", label: "活動紀錄" },
   { id: "plans", icon: "plans", label: "方案與額度" },
+  { id: "skills", icon: "skills", label: "Skills Insights" },
   { id: "dataSources", icon: "source", label: "資料來源" },
   { id: "notifications", icon: "notifications", label: "通知設定" },
   { id: "settings", icon: "settings", label: "設定" },
@@ -763,6 +766,7 @@ export function App() {
         {store.page === "usageStats" && <UsageStatsPage />}
         {store.page === "activity" && <ActivityPage />}
         {store.page === "plans" && <PlansPage />}
+        {store.page === "skills" && <SkillsPage />}
         {store.page === "dataSources" && <DataSourcesPage />}
         {store.page === "notifications" && <NotificationsPage />}
         {store.page === "settings" && <SettingsPage />}

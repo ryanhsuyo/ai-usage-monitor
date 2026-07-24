@@ -311,6 +311,27 @@ table.data tbody tr:hover td { background: #f7f9fa; }
 .stats-model-row td { color: #7d848b; font-size: 12px; background: #fafbfc; }
 p.hint { font-size: 11px; color: #8a9198; }
 
+/* ---------- skills monitor ---------- */
+.skill-consent { display: grid; grid-template-columns: 48px minmax(0, 620px); gap: 18px; margin-top: 20px; padding: 26px; border: 1px solid #dfe5e7; border-radius: 13px; background: white; box-shadow: 0 8px 30px #3239430a; }
+.skill-consent-icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 12px; background: #e7f4f1; color: #286f66; font-size: 22px; }
+.skill-consent h2 { margin: 10px 0 7px; font-size: 20px; }
+.skill-consent p, .skill-consent li { color: #697178; font-size: 12px; line-height: 1.6; }
+.skill-consent ul { margin: 11px 0 18px; padding-left: 18px; }
+.skill-platforms { display: flex; align-items: center; gap: 18px; margin-top: 14px; padding: 10px 13px; border: 1px solid #e0e4e7; border-radius: 10px; background: white; }
+.skill-platforms > div { display: flex; align-items: center; gap: 6px; }
+.skill-platforms small { color: #8b9298; font-size: 10.5px; }
+.skill-dot { width: 7px; height: 7px; border-radius: 50%; background: #a7afb5; }
+.skill-dot.detected { background: #32b798; box-shadow: 0 0 0 3px #32b79818; }
+.skill-evidence { display: flex; align-items: center; gap: 10px; margin: 14px 0; padding: 11px 14px; border: 1px solid #dce7e4; border-radius: 10px; background: #f4f8f7; color: #52615e; font-size: 11.5px; }
+.skill-evidence strong { flex: none; color: #286f66; }
+.skill-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0 10px; }
+.skill-toolbar input { width: min(300px, 42vw); padding: 8px 10px; border: 1px solid #d9dee2; border-radius: 8px; background: white; color: inherit; font: inherit; }
+.skill-filters { display: flex; gap: 4px; padding: 3px; border-radius: 9px; background: #e9edef; }
+.skill-filters button { border: 0; border-radius: 7px; padding: 6px 12px; background: transparent; color: #6f777e; font: inherit; cursor: pointer; }
+.skill-filters button.active { background: white; color: #286f66; box-shadow: 0 1px 4px #26303816; font-weight: 700; }
+.skill-table td:first-child { max-width: 390px; }
+.skill-table td small { display: block; margin-top: 3px; color: #8b9298; font-size: 10.5px; line-height: 1.35; }
+
 /* ---------- dark mode (follows the OS, spec §19) ---------- */
 @media (prefers-color-scheme: dark) {
   :root { color: #dde1e6; background: #14171c; }
@@ -375,4 +396,12 @@ p.hint { font-size: 11px; color: #8a9198; }
   .stats-summary small { color: #7d8791; }
   .stats-model-row td { background: #181d22; color: #98a1ab; }
   p.hint { color: #8f98a2; }
+  .skill-evidence { background: #192723; border-color: #29423c; color: #a5b5b1; }
+  .skill-consent, .skill-platforms { background: #1c2127; border-color: #2c333b; }
+  .skill-consent-icon { background: #17352e; color: #59c2a7; }
+  .skill-consent p, .skill-consent li { color: #9ba4ad; }
+  .skill-toolbar input { background: #14171c; border-color: #343c45; color: #dde1e6; }
+  .skill-filters { background: #262c34; }
+  .skill-filters button { color: #9ba4ad; }
+  .skill-filters button.active { background: #17352e; color: #59c2a7; box-shadow: none; }
 }

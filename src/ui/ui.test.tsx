@@ -25,6 +25,7 @@ async function resetAll() {
   await services.settingsRepo.set(SETTINGS_KEYS.onboardingCompleted, "true");
   await services.settingsRepo.set(SETTINGS_KEYS.demoMode, "false");
   await services.settingsRepo.set(SETTINGS_KEYS.notificationsEnabled, "true");
+  await services.settingsRepo.set(SETTINGS_KEYS.skillsInsightsEnabled, "false");
   useAppStore.setState({ page: "dashboard", selectedLimitId: undefined, loaded: false });
 }
 
@@ -82,6 +83,7 @@ async function seedSnapshot(usedPercent: number, hoursAgo = 0) {
 }
 
 beforeEach(async () => {
+  localStorage.clear();
   await resetAll();
 });
 
@@ -121,6 +123,36 @@ describe("Shared accessibility", () => {
     expect(action).toHaveFocus();
     await user.tab();
     expect(close).toHaveFocus();
+  });
+
+  it("shows the custom minimize control only in borderless widget mode", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByText("還沒有任何監控目標");
+    expect(screen.queryByRole("button", { name: "縮到 Dock 或工作列" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "小工具" }));
+    expect(screen.getByRole("button", { name: "縮到 Dock 或工作列" })).toBeInTheDocument();
+  });
+});
+
+describe("Skills Insights privacy", () => {
+  it("requires explicit consent before local skill analysis and can be disabled", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Skills Insights" }));
+    expect(await screen.findByText("啟用本機 Skills 分析？")).toBeInTheDocument();
+    expect(screen.getByText("預設關閉")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新掃描" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "啟用 Skills Insights" }));
+    expect(await screen.findByRole("button", { name: "停用" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "重新掃描" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "停用" }));
+    expect(await screen.findByText("啟用本機 Skills 分析？")).toBeInTheDocument();
   });
 });
 

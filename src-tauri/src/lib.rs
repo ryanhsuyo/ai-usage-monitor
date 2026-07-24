@@ -12,6 +12,7 @@
 mod secret;
 mod local_usage;
 mod diagnostics;
+mod skill_usage;
 
 use std::sync::Mutex;
 #[cfg(target_os = "macos")]
@@ -422,6 +423,7 @@ pub fn run() {
             local_usage::read_claude_local_usage,
             local_usage::read_claude_usage_daily,
             local_usage::read_codex_usage_daily,
+            skill_usage::read_skill_monitor,
             secret::secret_set,
             secret::secret_get,
             secret::secret_delete,

@@ -20,6 +20,7 @@ export const SETTINGS_KEYS = {
   stripRightInfo: "widget.stripRightInfo",
   widgetIdleOpacity: "widget.idleOpacity",
   widgetHoverOpaque: "widget.hoverOpaque",
+  skillsInsightsEnabled: "skills.insightsEnabled",
 } as const;
 
 export const SETTINGS_DEFAULTS: Record<string, string> = {
@@ -40,6 +41,7 @@ export const SETTINGS_DEFAULTS: Record<string, string> = {
   [SETTINGS_KEYS.stripRightInfo]: "both",
   [SETTINGS_KEYS.widgetIdleOpacity]: "72",
   [SETTINGS_KEYS.widgetHoverOpaque]: "true",
+  [SETTINGS_KEYS.skillsInsightsEnabled]: "false",
 };
 
 export type StripSize = "small" | "medium" | "large";
